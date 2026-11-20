@@ -72,12 +72,16 @@ export function createAudioController(initialVolume = 0.7) {
         playTone(660, 0.14, 'sine', 0.14, 880);
         break;
       case 'deposit':
+      case 'refuel':
         playTone(523.25, 0.18, 'triangle', 0.16, 659.25);
         break;
       case 'lantern_lit':
         playTone(440, 0.45, 'triangle', 0.22);
         playTone(554.37, 0.55, 'sine', 0.18);
         playTone(659.25, 0.7, 'sine', 0.18);
+        break;
+      case 'lantern_out':
+        playTone(260, 0.45, 'triangle', 0.16, 110);
         break;
       case 'pulse':
         playTone(330, 0.35, 'sine', 0.24, 990);

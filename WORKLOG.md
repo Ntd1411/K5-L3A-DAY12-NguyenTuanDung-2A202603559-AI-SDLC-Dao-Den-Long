@@ -1,5 +1,35 @@
 # Nhật ký lab
 
+## Phase 3 · Ticket-03 "Đèn cạn dầu" (Contract v1.2)
+
+### 20/11/2026 · Mốc A–B bắt đầu 17:23 ICT
+
+- **Mốc bàn giao trước** — Phase 2 đã chốt tại commit `7412f1e`, annotated tag `phase-2` đã push lên GitHub. Test cuối Phase 2 đạt 19/19.
+- **Phạm vi phiên này** — Nâng contract lên v1.2; thêm nhiên liệu số nguyên theo đơn vị `1/60`, hao dầu, châm dầu, tắt/thắp lại, `ever_lit`, `relit_count`, sức chứa động và công thức điểm mới. Giữ mô phỏng 60 tick/s dùng chung cho Node và web.
+- **Quy ước** — `fuelUnits = fuel × 60`, tối đa `6000`. Mỗi tick đèn sáng mất 1 unit. Scenario `lit: true` không ghi `fuel` mặc định 100 và `ever_lit: true`; đèn tắt mặc định 0. `successful_lights` chỉ tăng do tương tác trong đêm, kể cả thắp lại.
+- **Tiêu chí nghiệm thu Mốc A–B** — Snapshot tick 0 có `fuel`, `ever_lit`, `relit_count`, `player.capacity`; validation chấp nhận override v1.2 và loại dữ liệu sai; test biên hao dầu, châm thiếu dưới 10 fuel, bỏ qua đèn đầy, tắt đúng một lần, thắp lại giá 5, capacity 10→12 và trần 20; `npm test` và `npm run build` đạt.
+- **Hồi quy có chủ đích** — Các assertion Phase 2 về thắng ngay `all_lit`, thời lượng đêm, điểm nạp và `carry_capacity` phải được thay bằng luật Ticket-03, không skip. Các test di chuyển, lướt, rơi, map, gió, pause và mã thoát CLI phải tiếp tục đạt.
+- **Kết quả bắt đầu Phase 3 lúc 17:29 ICT** — Đã nâng `game.contract.json` lên v1.2 và triển khai lõi Mốc A–B: fuel fixed-point, hao/châm dầu, `lantern_out`, thắp lại, capacity động, trạng thái `drain`, điểm xung khi drain và xét `dawn_survived`. Thêm [ADR 0001](docs/adr/0001-lantern-fuel-and-dawn.md) và [CHANGELOG](CHANGELOG.md).
+- **Kiểm chứng** — `npm test` đạt **25/25**; `npm run build` đạt trong `2.99s`; CLI tick 0 trả snapshot v1.2 có `capacity`, `fuel`, `ever_lit`, `relit_count` và dòng `end`. Hai test Phase 2 bị luật mới thay thế đã đổi assertion kèm chú thích, không skip.
+
+### 20/11/2026 · Hoàn thiện Mốc C–D & Nghiệm thu Phase 3 (17:45–17:51 ICT)
+
+- **Lệnh kiểm chứng & Kết quả**:
+  - `npm test`: **Đạt (29/29 test)** ([sim-phase3-fuel.test.js](tests/sim-phase3-fuel.test.js), [sim-m1-m2.test.js](tests/sim-m1-m2.test.js), [sim-m3-night1.test.js](tests/sim-m3-night1.test.js), [sim-phase2-mechanics.test.js](tests/sim-phase2-mechanics.test.js), [web-input.test.js](tests/web-input.test.js)).
+  - `npm run build`: **Đạt** (`dist/` build trong `3.99s`).
+  - `scripts/verify-headless.py` (tất định 2 lần chạy giống hệt từng byte cho cả 6 kịch bản v1.2):
+    - [lantern-lifecycle.jsonl](docs/proof/phase-3/lantern-lifecycle.jsonl)
+    - [multi-drain.jsonl](docs/proof/phase-3/multi-drain.jsonl)
+    - [refuel-safe-zone.jsonl](docs/proof/phase-3/refuel-safe-zone.jsonl)
+    - [night1-dawn-win.jsonl](docs/proof/phase-3/night1-dawn-win.jsonl)
+    - [night2-dawn-win.jsonl](docs/proof/phase-3/night2-dawn-win.jsonl)
+    - [night3-dawn-win.jsonl](docs/proof/phase-3/night3-dawn-win.jsonl)
+  - **Playtest & Hiệu năng trình duyệt 1280×720 (Chrome 157, WebGL 2, Chế độ Chuẩn `lightMode=false`, 0 lỗi console)**:
+    - Xác nhận HUD sức chứa động (`0/10`), mục tiêu bình minh (`GIỮ SÁNG 0/3` Đêm 1, `0/5` Đêm 3), gợi ý `E — Nạp sáng L1 (0/10)`, cài đặt **Bảng màu dễ phân biệt** (`accessiblePalette: true` lưu bền vững qua reload trong `localStorage`), Bóng Mực `#00B3FF` và cảnh báo `⚠`.
+    - Kết quả đo Đêm 3 (`samples = 2555`, `durationSec = 46 s`, `36` draw calls, `10710` triangles): **`55.6 FPS` trung bình**, **`p95 = 33.3 ms`** (`>= 30 FPS`).
+    - Ảnh chụp bằng chứng: [01-night1-unlit-prompt.png](docs/proof/phase-3/01-night1-unlit-prompt.png), [02-accessible-palette-shade.png](docs/proof/phase-3/02-accessible-palette-shade.png), [03-night1-accessible-hud.png](docs/proof/phase-3/03-night1-accessible-hud.png), [04-night3-wind-perf.png](docs/proof/phase-3/04-night3-wind-perf.png).
+- **Tài liệu**: Đã cập nhật [README.md](README.md), [CHANGELOG.md](CHANGELOG.md), [ADR 0001](docs/adr/0001-lantern-fuel-and-dawn.md) và `WORKLOG.md`.
+
 ## Nâng cấp mỹ thuật WebGL
 
 ### 20/11/2026 · Nhân vật và quần thể đảo (bắt đầu 17:08 ICT)

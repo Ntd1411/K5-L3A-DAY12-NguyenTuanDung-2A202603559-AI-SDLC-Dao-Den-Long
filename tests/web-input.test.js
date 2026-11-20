@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSimulationState, stepSimulation } from '../src/sim/index.js';
 import { createWebInputController } from '../src/web/input.js';
+import { loadSettings, saveSettings } from '../src/web/settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -79,4 +80,19 @@ test('holding E across multiple ticks only triggers one deposit', () => {
   stepSimulation(sim, input.consumeTickInput());
   assert.equal(sim.lanterns[0].deposited, 2);
   assert.equal(sim.player.carried, 2);
+});
+
+test('accessible palette setting persists and malformed storage falls back safely', () => {
+  let stored = null;
+  globalThis.window = {
+    localStorage: {
+      getItem: () => stored,
+      setItem: (_key, value) => { stored = value; }
+    }
+  };
+  saveSettings({ volume: 0.5, sensitivity: 1.4, lightMode: false, accessiblePalette: true });
+  assert.equal(loadSettings().accessiblePalette, true);
+  stored = '{broken';
+  assert.equal(loadSettings().accessiblePalette, false);
+  delete globalThis.window;
 });

@@ -24,7 +24,7 @@ export function createHud(root, callbacks) {
 
       <div class="hud-top-right">
         <div class="hud-stat">
-          <span class="hud-label">Đèn</span>
+          <span class="hud-label">Giữ sáng</span>
           <span class="hud-value" data-hud="lanterns">0/5</span>
         </div>
         <div class="hud-stat">
@@ -63,7 +63,7 @@ export function createHud(root, callbacks) {
     <div class="modal-overlay" data-screen="menu">
       <div class="modal-card">
         <h1 class="modal-title">Đảo Đèn Lồng</h1>
-        <p class="modal-subtitle">Thắp sáng ba hòn đảo trước khi bình minh tới.</p>
+        <p class="modal-subtitle">Giữ đủ đèn sáng tới bình minh trên cả ba hòn đảo.</p>
         <div class="modal-actions">
           <button type="button" class="primary-btn" data-action="start-game">Bắt đầu hành trình</button>
           <button type="button" class="secondary-btn" data-action="open-settings">Cài đặt</button>
@@ -108,6 +108,10 @@ export function createHud(root, callbacks) {
           <label class="setting-row">
             <span>Độ nhạy chuột: <strong data-hud="sens-val">1.0x</strong></span>
             <input type="range" min="30" max="250" value="100" data-input="sensitivity" />
+          </label>
+          <label class="setting-row setting-toggle">
+            <input type="checkbox" data-input="accessible-palette" />
+            <span>Bảng màu dễ phân biệt</span>
           </label>
         </div>
         <div class="modal-actions">
@@ -164,7 +168,9 @@ export function createHud(root, callbacks) {
   const scoreEl = root.querySelector('[data-hud="score"]');
   const totalScoreEl = root.querySelector('[data-hud="total-score"]');
   const promptEl = root.querySelector('[data-hud="prompt"]');
-  const moteBarSlots = root.querySelectorAll('[data-hud="mote-bar"] .mote-slot');
+  const moteBarEl = root.querySelector('[data-hud="mote-bar"]');
+  let moteBarSlots = root.querySelectorAll('[data-hud="mote-bar"] .mote-slot');
+  let renderedCapacity = 10;
   const moteCaptionEl = root.querySelector('[data-hud="mote-caption"]');
   const charmChipEl = root.querySelector('[data-hud="charm-chip"]');
   const dashChipEl = root.querySelector('[data-hud="dash-chip"]');
@@ -189,6 +195,7 @@ export function createHud(root, callbacks) {
   const volVal = root.querySelector('[data-hud="vol-val"]');
   const sensInput = root.querySelector('[data-input="sensitivity"]');
   const sensVal = root.querySelector('[data-hud="sens-val"]');
+  const accessibleInput = root.querySelector('[data-input="accessible-palette"]');
 
   root.querySelector('[data-action="start-game"]').addEventListener('click', callbacks.onStartGame);
   root.querySelector('[data-action="begin-night"]').addEventListener('click', callbacks.onBeginNight);
@@ -219,6 +226,10 @@ export function createHud(root, callbacks) {
     callbacks.onChangeSensitivity(s);
   });
 
+  accessibleInput.addEventListener('change', () => {
+    callbacks.onToggleAccessiblePalette(accessibleInput.checked);
+  });
+
   let hitFlashTimer = 0;
   const projVec = new THREE.Vector3();
 
@@ -243,6 +254,7 @@ export function createHud(root, callbacks) {
     volVal.textContent = `${Math.round(settings.volume * 100)}%`;
     sensInput.value = String(Math.round(settings.sensitivity * 100));
     sensVal.textContent = `${settings.sensitivity.toFixed(1)}x`;
+    accessibleInput.checked = Boolean(settings.accessiblePalette);
     screens.settings.classList.remove('hidden');
   }
 
@@ -252,6 +264,10 @@ export function createHud(root, callbacks) {
 
   function setLightModeLabel(enabled) {
     lightModeBtn.textContent = enabled ? 'Nhẹ' : 'Chuẩn';
+  }
+
+  function setAccessiblePalette(enabled) {
+    root.classList.toggle('accessible-palette', enabled);
   }
 
   function triggerHitFlash() {
@@ -264,18 +280,18 @@ export function createHud(root, callbacks) {
     const isWon = sim.state === 'won';
     if (isWon && sim.night === 3) {
       endTitleEl.textContent = 'Bình Minh Rạng Rỡ!';
-      endReasonEl.textContent = 'Mây đã thắp sáng cả ba hòn đảo và đẩy lùi sương đen.';
+      endReasonEl.textContent = 'Mây đã giữ đủ đèn sáng tới bình minh trên cả ba hòn đảo.';
       nextNightBtn.classList.add('hidden');
     } else if (isWon) {
       endTitleEl.textContent = `Hoàn thành Đêm ${sim.night}`;
-      endReasonEl.textContent = `Tất cả ${sim.lanterns.length} Đèn Lồng Lớn trên ${sim.map.name} đã tỏa sáng.`;
+      endReasonEl.textContent = `Mây đã giữ đủ đèn trên ${sim.map.name} sáng tới bình minh.`;
       nextNightBtn.classList.remove('hidden');
     } else {
       endTitleEl.textContent = `Thất bại ở Đêm ${sim.night}`;
       endReasonEl.textContent =
         sim.endReason === 'no_flames'
           ? 'Mây đã tắt hết Ngọn Lửa.'
-          : 'Bình minh đã tới trước khi thắp đủ đèn.';
+          : 'Bình minh đã tới nhưng số đèn còn sáng chưa đủ.';
       nextNightBtn.classList.add('hidden');
     }
     endScoreEl.textContent = String(sim.score);
@@ -299,30 +315,41 @@ export function createHud(root, callbacks) {
     }).join('');
 
     // Timer
-    timeEl.textContent = formatTime(sim.timeLeftS);
+    const dangerPrefix = root.classList.contains('accessible-palette') && sim.timeLeftS <= 30
+      ? '⚠ '
+      : '';
+    timeEl.textContent = `${dangerPrefix}${formatTime(sim.timeLeftS)}`;
     timeEl.classList.toggle('danger', sim.timeLeftS <= 30);
 
     // Wind banner
     if (sim.wind.warning) {
-      windBannerEl.textContent = 'Gió mạnh sắp tới!';
+      windBannerEl.textContent = `${root.classList.contains('accessible-palette') ? '⚠ ' : ''}Gió mạnh sắp tới!`;
       windBannerEl.classList.remove('hidden');
     } else if (sim.wind.active) {
-      windBannerEl.textContent = 'Gió mạnh đang thổi!';
+      windBannerEl.textContent = `${root.classList.contains('accessible-palette') ? '⚠ ' : ''}Gió mạnh đang thổi!`;
       windBannerEl.classList.remove('hidden');
     } else {
       windBannerEl.classList.add('hidden');
     }
 
     const litCount = sim.lanterns.filter((l) => l.lit).length;
-    lanternsEl.textContent = `${litCount}/${sim.lanterns.length}`;
+    const required = Math.ceil(sim.tuning.win_ratio * sim.lanterns.length);
+    lanternsEl.textContent = `${litCount}/${required}`;
     scoreEl.textContent = String(sim.score);
     totalScoreEl.textContent = String(totalScore);
 
-    // 10-slot mote bar
+    if (renderedCapacity !== sim.player.capacity) {
+      renderedCapacity = sim.player.capacity;
+      moteBarEl.innerHTML = Array.from(
+        { length: renderedCapacity },
+        () => '<span class="mote-slot"></span>'
+      ).join('');
+      moteBarSlots = moteBarEl.querySelectorAll('.mote-slot');
+    }
     moteBarSlots.forEach((slot, idx) => {
       slot.classList.toggle('filled', idx < sim.player.carried);
     });
-    moteCaptionEl.textContent = `Đom đóm ${sim.player.carried}/${sim.tuning.carry_capacity}`;
+    moteCaptionEl.textContent = `Đom đóm ${sim.player.carried}/${sim.player.capacity}`;
 
     // Charm, Dash, Pulse
     if (sim.player.charmTicks > 0) {
@@ -354,7 +381,13 @@ export function createHud(root, callbacks) {
     // Interact prompt
     const nearestInteract = findNearestInteractableLantern(sim);
     if (nearestInteract && sim.state === 'playing') {
-      promptEl.textContent = `E — Nạp ánh sáng (${nearestInteract.deposited}/${sim.tuning.lantern_cost})`;
+      if (nearestInteract.lit) {
+        promptEl.textContent = `E — Châm dầu ${nearestInteract.id} (${(nearestInteract.fuelUnits / 60).toFixed(1)}/100)`;
+      } else {
+        const cost = nearestInteract.everLit ? sim.tuning.relight_cost : sim.tuning.lantern_cost;
+        const action = nearestInteract.everLit ? 'Thắp lại' : 'Nạp sáng';
+        promptEl.textContent = `E — ${action} ${nearestInteract.id} (${nearestInteract.deposited}/${cost})`;
+      }
       promptEl.classList.remove('hidden');
     } else {
       promptEl.classList.add('hidden');
@@ -408,6 +441,7 @@ export function createHud(root, callbacks) {
     showSettings,
     hideSettings,
     setLightModeLabel,
+    setAccessiblePalette,
     triggerHitFlash,
     showResult,
     update

@@ -41,12 +41,16 @@ function maxNumericId(items, prefix) {
 export function createSimulationState({ night = 1, seed = 42, tuning, scenario = null }) {
   const rng = createRng(seed);
   const map = getMapConfig(night);
+  const fuelMaxUnits = Math.round(tuning.fuel_max * TICK_RATE);
 
   const lanterns = map.lanterns.map((entry) => ({
     id: entry.id,
     pos: [...entry.pos],
     lit: false,
-    deposited: 0
+    deposited: 0,
+    fuelUnits: 0,
+    everLit: false,
+    relitCount: 0
   }));
 
   if (scenario?.lanterns) {
@@ -55,12 +59,21 @@ export function createSimulationState({ night = 1, seed = 42, tuning, scenario =
       if (!target) continue;
       if (override.pos) target.pos = [...override.pos];
       if (override.deposited !== undefined) target.deposited = override.deposited;
+      if (override.ever_lit !== undefined) target.everLit = override.ever_lit;
+      if (override.relit_count !== undefined) target.relitCount = override.relit_count;
       if (override.lit !== undefined) {
         target.lit = override.lit;
         if (override.lit && override.deposited === undefined) {
           target.deposited = tuning.lantern_cost;
         }
       }
+      if (override.fuel !== undefined) {
+        target.fuelUnits = Math.max(0, Math.min(fuelMaxUnits, Math.round(override.fuel * TICK_RATE)));
+      } else if (target.lit) {
+        target.fuelUnits = fuelMaxUnits;
+      }
+      if (target.lit) target.everLit = override.ever_lit ?? true;
+      if (!target.lit) target.fuelUnits = 0;
     }
   }
 
@@ -108,6 +121,8 @@ export function createSimulationState({ night = 1, seed = 42, tuning, scenario =
         pushTicksLeft: 0,
         pushDir: [1, 0],
         safePushTicksLeft: 0,
+        targetLanternId: s.target_lantern_id ?? null,
+        drainTicks: 0,
         wanderAngle: rng() * Math.PI * 2,
         spawnedThisTick: false
       };
@@ -169,6 +184,8 @@ export function createSimulationState({ night = 1, seed = 42, tuning, scenario =
     facingYawDeg: 0,
     flames: scenario?.player?.flames ?? tuning.flames,
     carried: scenario?.player?.carried ?? 0,
+    successfulLights: scenario?.player?.successful_lights ?? 0,
+    capacity: 0,
     invulnTicks: scenario?.player?.invuln_ticks ?? 0,
     dashTicks: 0,
     dashDir: [0, 1],
@@ -179,6 +196,10 @@ export function createSimulationState({ night = 1, seed = 42, tuning, scenario =
     launched: false,
     launchVel: [0, 0]
   };
+  player.capacity = Math.min(
+    tuning.capacity_max,
+    tuning.carry_capacity + 2 * player.successfulLights
+  );
 
   const durationS = scenario?.time_left_s ?? tuning[map.durationKey];
   const initialTimeLeftTicks = Math.round(durationS * TICK_RATE);
@@ -235,7 +256,7 @@ export function createSimulationState({ night = 1, seed = 42, tuning, scenario =
 }
 
 /**
- * Serialize current simulation state into a Test Contract v1.1 snapshot record.
+ * Serialize current simulation state into a Test Contract v1.2 snapshot record.
  */
 export function serializeSnapshot(sim) {
   const activeMotes = sim.motes.filter((m) => m.active);
@@ -258,6 +279,7 @@ export function serializeSnapshot(sim) {
       grounded: sim.player.grounded,
       flames: sim.player.flames,
       carried: sim.player.carried,
+      capacity: sim.player.capacity,
       invuln: sim.player.invulnTicks > 0,
       dash_cd_s: round3(sim.player.dashCdTicks * SIM_DT),
       pulse_cd_s: round3(sim.player.pulseCdTicks * SIM_DT),
@@ -267,7 +289,10 @@ export function serializeSnapshot(sim) {
       id: l.id,
       pos: roundPos(l.pos),
       lit: l.lit,
-      deposited: l.deposited
+      deposited: l.deposited,
+      fuel: Number((l.fuelUnits / TICK_RATE).toFixed(1)),
+      ever_lit: l.everLit,
+      relit_count: l.relitCount
     })),
     shades: sim.shades.map((s) => ({
       id: s.id,
@@ -296,7 +321,7 @@ export function serializeSnapshot(sim) {
 }
 
 /**
- * Serialize the final end record according to Test Contract v1.1.
+ * Serialize the final end record according to Test Contract v1.2.
  */
 export function serializeEnd(sim) {
   const endState = sim.state === 'paused' ? 'playing' : sim.state;

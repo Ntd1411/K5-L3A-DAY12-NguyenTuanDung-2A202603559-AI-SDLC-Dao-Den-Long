@@ -1,0 +1,9 @@
+{
+  "player": { "pos": [0, 0, 24.5], "carried": 5 },
+  "lanterns": [
+    { "id": "L1", "lit": true, "fuel": 0.0166666667, "ever_lit": true }
+  ],
+  "random_motes": false,
+  "random_shades": false,
+  "wind_enabled": false
+}

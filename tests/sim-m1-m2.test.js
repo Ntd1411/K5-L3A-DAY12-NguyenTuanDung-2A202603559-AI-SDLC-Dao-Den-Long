@@ -127,7 +127,7 @@ test('mote pickup boundary (1.0m XZ, 1.5m Y) and carry_capacity limit (10)', () 
   const pickedEvents = events.filter((e) => e.name === 'mote_picked');
   assert.equal(pickedEvents.length, 10);
   assert.equal(sim.player.carried, 10);
-  assert.equal(sim.score, 0, 'v1.1 grants score on deposit, not pickup');
+  assert.equal(sim.score, 0, 'v1.2 grants score on deposit/refuel, not pickup');
   assert.equal(sim.motes.filter((m) => m.active).length, 4);
 });
 
@@ -147,7 +147,7 @@ test('partial deposit, lighting L1 (10 motes), holding E triggers once, and ID t
   const ev1 = stepSimulation(sim, { interact: true });
   assert.ok(ev1.some((e) => e.name === 'deposit' && e.data.lantern_id === 'L1' && e.data.amount === 6));
   assert.equal(sim.player.carried, 0);
-  assert.equal(sim.score, 60);
+  assert.equal(sim.score, 30);
 
   // Holding E does not re-trigger
   sim.player.carried = 4;
@@ -160,7 +160,8 @@ test('partial deposit, lighting L1 (10 motes), holding E triggers once, and ID t
   assert.ok(ev2.some((e) => e.name === 'deposit' && e.data.amount === 4 && e.data.deposited === 10));
   assert.ok(ev2.some((e) => e.name === 'lantern_lit' && e.data.lantern_id === 'L1'));
   assert.equal(sim.lanterns[0].lit, true);
-  assert.equal(sim.score, 60 + 40 + 100);
+  // Ticket-03 replaces +10/mote with +5/mote and keeps +100 for first light.
+  assert.equal(sim.score, 30 + 20 + 100);
 
   // Tie-break: L2 and L3 equidistant from player -> L2 wins
   const simTie = createSimulationState({

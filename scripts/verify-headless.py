@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Phase 1 headless command twice and save verified JSONL output."""
+"""Run the configured headless command twice and validate deterministic JSONL."""
 
 import argparse
 import json
@@ -11,7 +11,53 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def validate_output(output, ticks):
+def _require(record, keys, label):
+    missing = [key for key in keys if key not in record]
+    if missing:
+        raise ValueError(f"{label} is missing fields: {', '.join(missing)}.")
+
+
+def validate_v12(records):
+    snapshots = [record for record in records if record.get("type") == "snapshot"]
+    for snapshot in snapshots:
+        _require(snapshot, ("sim_tick", "night", "state", "player", "lanterns"), "Snapshot")
+        player = snapshot["player"]
+        if not isinstance(player, dict):
+            raise ValueError("snapshot.player must be an object.")
+        _require(player, ("capacity", "carried", "flames"), "snapshot.player")
+        if type(player["capacity"]) is not int or not 10 <= player["capacity"] <= 20:
+            raise ValueError("snapshot.player.capacity must be an integer in [10, 20].")
+        if not isinstance(snapshot["lanterns"], list):
+            raise ValueError("snapshot.lanterns must be an array.")
+        for lantern in snapshot["lanterns"]:
+            _require(
+                lantern,
+                ("id", "lit", "deposited", "fuel", "ever_lit", "relit_count"),
+                "snapshot lantern",
+            )
+            if not isinstance(lantern["fuel"], (int, float)) or not 0 <= lantern["fuel"] <= 100:
+                raise ValueError("snapshot lantern fuel must be in [0, 100].")
+            if lantern["lit"] is False and lantern["fuel"] != 0:
+                raise ValueError("An unlit snapshot lantern must have fuel 0.")
+
+    for event in (record for record in records if record.get("type") == "event"):
+        name, data = event.get("name"), event.get("data")
+        if not isinstance(data, dict):
+            raise ValueError(f"Event {name!r} must contain an object payload.")
+        if name == "refuel":
+            _require(data, ("lantern_id", "amount", "fuel"), "refuel event")
+        elif name == "lantern_out":
+            _require(data, ("lantern_id",), "lantern_out event")
+        elif name == "fuel_drain":
+            _require(data, ("lantern_id", "shade_id", "fuel"), "fuel_drain event")
+        elif name == "lantern_lit":
+            _require(data, ("lantern_id", "relight"), "lantern_lit event")
+        elif name == "game_over" and data.get("result") == "won":
+            if data.get("reason") != "dawn_survived":
+                raise ValueError("Contract v1.2 wins must use reason dawn_survived.")
+
+
+def validate_output(output, ticks, contract):
     records = [json.loads(line.decode("utf-8")) for line in output.splitlines()]
     if not records or any(not isinstance(record, dict) for record in records):
         raise ValueError("Expected JSONL made up of JSON objects.")
@@ -33,6 +79,8 @@ def validate_output(output, ticks):
         raise ValueError("The end record has an invalid game state.")
     if state == "playing" and end_ticks != ticks:
         raise ValueError("The simulation stopped before the requested tick count.")
+    if contract.get("contract_version") == "1.2":
+        validate_v12(records)
 
 
 def main():
@@ -78,7 +126,7 @@ def main():
 
         if outputs[0] != outputs[1]:
             raise ValueError("Headless output differed between runs with identical inputs.")
-        validate_output(outputs[0], args.ticks)
+        validate_output(outputs[0], args.ticks, contract)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_bytes(outputs[0])
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

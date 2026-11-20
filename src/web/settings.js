@@ -3,7 +3,8 @@ const STORAGE_KEY = 'dao-den-long-settings';
 const DEFAULTS = {
   volume: 0.7,
   sensitivity: 1.0,
-  lightMode: false
+  lightMode: false,
+  accessiblePalette: false
 };
 
 export function loadSettings() {
@@ -21,7 +22,11 @@ export function loadSettings() {
           ? Math.max(0.3, Math.min(2.5, parsed.sensitivity))
           : DEFAULTS.sensitivity,
       lightMode:
-        typeof parsed.lightMode === 'boolean' ? parsed.lightMode : DEFAULTS.lightMode
+        typeof parsed.lightMode === 'boolean' ? parsed.lightMode : DEFAULTS.lightMode,
+      accessiblePalette:
+        typeof parsed.accessiblePalette === 'boolean'
+          ? parsed.accessiblePalette
+          : DEFAULTS.accessiblePalette
     };
   } catch {
     return { ...DEFAULTS };

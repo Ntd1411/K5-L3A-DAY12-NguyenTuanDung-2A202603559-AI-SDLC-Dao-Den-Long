@@ -332,7 +332,29 @@ function createLanternMesh(id, pos, safeRadius, glowTexture, warmHaloTex) {
   safeRing.position.y = 0.05;
   group.add(safeRing);
 
-  return { id, group, coreMat, haloMat, safeMat };
+  const fuelGroup = new THREE.Group();
+  fuelGroup.position.y = 3.55;
+  const fuelBack = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.34, 0.2),
+    new THREE.MeshBasicMaterial({ color: 0x120a1a, transparent: true, opacity: 0.82, depthWrite: false })
+  );
+  const fuelMat = new THREE.MeshBasicMaterial({ color: COLORS.lanternLit, depthWrite: false });
+  const fuelFill = new THREE.Mesh(new THREE.PlaneGeometry(1.22, 0.11), fuelMat);
+  fuelFill.position.z = 0.01;
+  fuelGroup.add(fuelBack, fuelFill);
+  fuelGroup.visible = false;
+  group.add(fuelGroup);
+
+  const tear = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.06, 0.55),
+    new THREE.MeshBasicMaterial({ color: 0x261c22, side: THREE.DoubleSide })
+  );
+  tear.position.set(0.08, 2.28, 0.335);
+  tear.rotation.z = 0.48;
+  tear.visible = true;
+  group.add(tear);
+
+  return { id, group, core, coreMat, haloMat, safeMat, fuelGroup, fuelFill, fuelMat, tear };
 }
 
 function createMoteMesh(pos, warmHaloTex) {
@@ -409,7 +431,7 @@ function createShadeMesh(purpleAuraTex) {
   eyeR.position.set(0.14, 1.39, 0.34);
   group.add(eyeL, eyeR);
 
-  return { group, bodyMat, auraMat };
+  return { group, bodyMat, auraMat, eyeMat };
 }
 
 function createDrifterMesh() {
@@ -739,7 +761,7 @@ function buildTerrainForNight(night, map) {
   return group;
 }
 
-export function createWorldView(scene, initialSim) {
+export function createWorldView(scene, initialSim, camera = null) {
   const glowTexture = createSoftGlowTexture(
     'rgba(255, 233, 176, 0.92)',
     'rgba(255, 179, 71, 0.50)',
@@ -824,6 +846,7 @@ export function createWorldView(scene, initialSim) {
   scene.add(pulseRing);
   let pulseAnim = { active: false, t: 0, maxRadius: 5 };
   let lightMode = false;
+  let accessiblePalette = false;
 
   function clearMap(map) {
     for (const v of map.values()) {
@@ -880,6 +903,10 @@ export function createWorldView(scene, initialSim) {
     if (enabled) lanternLights.forEach((light) => { light.intensity = 0; });
   }
 
+  function setAccessiblePalette(enabled) {
+    accessiblePalette = Boolean(enabled);
+  }
+
   function triggerPulseEffect(origin, radius) {
     pulseAnim = { active: true, t: 0, maxRadius: radius };
     pulseRing.position.set(origin[0], origin[1] + 0.15, origin[2]);
@@ -907,8 +934,10 @@ export function createWorldView(scene, initialSim) {
     lanternLights.forEach((light, index) => {
       const entry = nearestLit[index];
       if (!lightMode && entry) {
+        const fuelRatio = Math.max(0, Math.min(1, entry.lantern.fuelUnits / (sim.tuning.fuel_max * 60)));
         light.position.set(entry.lantern.pos[0], entry.lantern.pos[1] + 2.3, entry.lantern.pos[2]);
-        light.intensity = 1.65 + Math.sin(elapsedSec * 3.1 + index * 2.2) * 0.12;
+        light.intensity = (1.1 + 0.55 * fuelRatio) +
+          Math.sin(elapsedSec * 3.1 + index * 2.2) * 0.1;
       } else {
         light.intensity = 0;
       }
@@ -937,17 +966,34 @@ export function createWorldView(scene, initialSim) {
       const lv = lanternViews.get(l.id);
       if (!lv) continue;
       if (l.lit) {
+        const fuelRatio = Math.max(0, Math.min(1, l.fuelUnits / (sim.tuning.fuel_max * 60)));
+        const lowFuel = l.fuelUnits < sim.tuning.low_fuel_threshold * 60;
+        const blink = !lowFuel || Math.sin(elapsedSec * Math.PI * 2) >= 0;
         lv.coreMat.color.setHex(COLORS.lanternCore);
         lv.coreMat.emissive.setHex(COLORS.lanternLit);
-        lv.coreMat.emissiveIntensity = 2.0;
-        lv.haloMat.opacity = 0.72 + Math.sin(elapsedSec * 2.5 + l.pos[0]) * 0.08;
-        lv.safeMat.opacity = 0.52;
+        lv.coreMat.emissiveIntensity = blink ? 0.55 + 1.45 * fuelRatio : 0.08;
+        lv.haloMat.opacity = blink
+          ? (0.28 + 0.5 * fuelRatio + Math.sin(elapsedSec * 2.5 + l.pos[0]) * 0.06)
+          : 0.06;
+        lv.safeMat.opacity = lowFuel ? 0 : 0.52;
+        lv.core.scale.set(1, 1, 1);
+        lv.tear.visible = false;
+        lv.fuelGroup.visible = blink;
+        if (camera) lv.fuelGroup.quaternion.copy(camera.quaternion);
+        lv.fuelFill.scale.x = Math.max(0.001, fuelRatio);
+        lv.fuelFill.position.x = -0.61 * (1 - fuelRatio);
+        lv.fuelMat.color.setHex(lowFuel
+          ? (accessiblePalette ? 0xffffff : 0xff5a5f)
+          : COLORS.lanternLit);
       } else {
         lv.coreMat.color.setHex(COLORS.lanternUnlit);
         lv.coreMat.emissive.setHex(COLORS.lanternLit);
         lv.coreMat.emissiveIntensity = l.deposited > 0 ? 0.4 : 0.05;
         lv.haloMat.opacity = l.deposited > 0 ? 0.2 : 0.0;
         lv.safeMat.opacity = 0;
+        lv.core.scale.set(1, 0.8, 1);
+        lv.tear.visible = true;
+        lv.fuelGroup.visible = false;
       }
     }
 
@@ -993,9 +1039,12 @@ export function createWorldView(scene, initialSim) {
         sv.bodyMat.emissiveIntensity = 0.3;
         sv.auraMat.opacity = 0.18;
       } else {
+        const shadeRim = accessiblePalette ? 0x00b3ff : COLORS.shadeRim;
         sv.bodyMat.color.setHex(COLORS.shadeBody);
-        sv.bodyMat.emissive.setHex(COLORS.shadeRim);
+        sv.bodyMat.emissive.setHex(shadeRim);
         sv.bodyMat.emissiveIntensity = 0.72;
+        sv.auraMat.color.setHex(accessiblePalette ? 0x00b3ff : 0xffffff);
+        sv.eyeMat.color.setHex(accessiblePalette ? 0x00b3ff : 0xff5a5f);
         sv.auraMat.opacity = 0.65 + Math.sin(elapsedSec * 4 + s.pos[0]) * 0.12;
       }
     }
@@ -1080,6 +1129,7 @@ export function createWorldView(scene, initialSim) {
   return {
     rebuildForSim,
     setLightMode,
+    setAccessiblePalette,
     triggerPulseEffect,
     sync
   };

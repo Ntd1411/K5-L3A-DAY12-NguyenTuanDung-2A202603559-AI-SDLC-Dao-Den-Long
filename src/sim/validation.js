@@ -21,11 +21,11 @@ function assertNonNegInt(v, label) {
   }
 }
 
-const VALID_SHADE_STATES = new Set(['spawning', 'wander', 'chase', 'recoil', 'stunned']);
+const VALID_SHADE_STATES = new Set(['spawning', 'wander', 'chase', 'recoil', 'stunned', 'drain']);
 const VALID_DRIFTER_STATES = new Set(['idle', 'chase', 'flee', 'removed']);
 
 /**
- * Validate parsed inputs JSON according to Test Contract v1.1.
+ * Validate parsed inputs JSON according to Test Contract v1.2.
  * @param {unknown} raw
  * @returns {{ frames: Array<object> }}
  */
@@ -82,7 +82,7 @@ export function validateInputs(raw) {
 }
 
 /**
- * Validate parsed scenario JSON according to Test Contract v1.1.
+ * Validate parsed scenario JSON according to Test Contract v1.2.
  * @param {unknown} raw
  * @returns {object}
  */
@@ -103,7 +103,8 @@ export function validateScenario(raw) {
       'invuln_ticks',
       'dash_cd_ticks',
       'pulse_cd_ticks',
-      'charm_ticks'
+      'charm_ticks',
+      'successful_lights'
     ]) {
       if (raw.player[key] !== undefined) {
         assertNonNegInt(raw.player[key], `scenario.player.${key}`);
@@ -149,6 +150,13 @@ export function validateScenario(raw) {
       }
       if (s.state_ticks_left !== undefined) {
         assertNonNegInt(s.state_ticks_left, `scenario.shades[${i}].state_ticks_left`);
+      }
+      if (
+        s.target_lantern_id !== undefined &&
+        s.target_lantern_id !== null &&
+        (typeof s.target_lantern_id !== 'string' || !s.target_lantern_id)
+      ) {
+        throw new FormatError(`scenario.shades[${i}].target_lantern_id must be a string or null.`);
       }
     });
   }
@@ -216,6 +224,15 @@ export function validateScenario(raw) {
       }
       if (l.lit !== undefined && typeof l.lit !== 'boolean') {
         throw new FormatError(`scenario.lanterns[${i}].lit must be a boolean.`);
+      }
+      if (l.fuel !== undefined && (!isFiniteNumber(l.fuel) || l.fuel < 0 || l.fuel > 100)) {
+        throw new FormatError(`scenario.lanterns[${i}].fuel must be between 0 and 100.`);
+      }
+      if (l.ever_lit !== undefined && typeof l.ever_lit !== 'boolean') {
+        throw new FormatError(`scenario.lanterns[${i}].ever_lit must be a boolean.`);
+      }
+      if (l.relit_count !== undefined) {
+        assertNonNegInt(l.relit_count, `scenario.lanterns[${i}].relit_count`);
       }
     });
   }

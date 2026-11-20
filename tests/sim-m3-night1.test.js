@@ -103,8 +103,8 @@ test('shades respect safe_radius (6m) and player inside safe zone is protected',
   }
 });
 
-test('endings: no_flames > all_lit > dawn priority', () => {
-  // Simultaneous no_flames + all_lit -> no_flames wins in v1.1
+test('v1.2 endings: no_flames wins ties; dawn uses the 60% lit threshold', () => {
+  // Ticket-03 removes all_lit; no_flames still wins at the final tick.
   const simBoth = createSimulationState({
     night: 1,
     seed: 42,
@@ -126,7 +126,7 @@ test('endings: no_flames > all_lit > dawn priority', () => {
   assert.equal(simBoth.state, 'lost');
   assert.equal(evBoth.find((e) => e.name === 'game_over').data.reason, 'no_flames');
 
-  // Simultaneous all_lit + dawn (last tick) -> all_lit wins
+  // Lighting the last lamp at dawn survives with reason dawn_survived.
   const simLastTick = createSimulationState({
     night: 1,
     seed: 42,
@@ -147,9 +147,9 @@ test('endings: no_flames > all_lit > dawn priority', () => {
   });
   const evWin = stepSimulation(simLastTick, { interact: true });
   assert.equal(simLastTick.state, 'won');
-  assert.equal(evWin.find((e) => e.name === 'game_over').data.reason, 'all_lit');
-  // Score: 10 (deposit) + 100 (lantern) + 0*2 (time) + 2*50 (flames) = 210
-  assert.equal(simLastTick.score, 210);
+  assert.equal(evWin.find((e) => e.name === 'game_over').data.reason, 'dawn_survived');
+  // 5 deposit + 100 first light + 4*(50+99) + (50+100) + 2*50.
+  assert.equal(simLastTick.score, 951);
 
   // Dawn loss
   const simDawn = createSimulationState({

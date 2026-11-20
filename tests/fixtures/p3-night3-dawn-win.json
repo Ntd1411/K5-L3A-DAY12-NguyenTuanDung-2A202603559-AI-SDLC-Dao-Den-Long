@@ -1,0 +1,13 @@
+{
+  "time_left_s": 0.0166666667,
+  "lanterns": [
+    { "id": "L1", "lit": true },
+    { "id": "L2", "lit": true },
+    { "id": "L3", "lit": true },
+    { "id": "L4", "lit": true },
+    { "id": "L5", "lit": true }
+  ],
+  "random_motes": false,
+  "random_shades": false,
+  "wind_enabled": false
+}

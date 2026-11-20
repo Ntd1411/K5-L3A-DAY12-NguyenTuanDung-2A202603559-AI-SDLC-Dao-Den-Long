@@ -45,7 +45,7 @@ let sim = createSimulationState({
   seed: 42,
   tuning: contract.tuning
 });
-const worldView = createWorldView(renderApp.scene, sim);
+const worldView = createWorldView(renderApp.scene, sim, renderApp.camera);
 
 function startNight(nightNum) {
   currentNight = nightNum;
@@ -89,6 +89,13 @@ function applyLightMode(enabled) {
   renderApp.setLightMode(settings.lightMode);
   worldView.setLightMode(settings.lightMode);
   hud.setLightModeLabel(settings.lightMode);
+}
+
+function applyAccessiblePalette(enabled) {
+  settings.accessiblePalette = Boolean(enabled);
+  saveSettings(settings);
+  worldView.setAccessiblePalette(settings.accessiblePalette);
+  hud.setAccessiblePalette(settings.accessiblePalette);
 }
 
 const hud = createHud(hudRoot, {
@@ -138,10 +145,12 @@ const hud = createHud(hudRoot, {
     input.setSensitivity(s);
     saveSettings(settings);
   },
+  onToggleAccessiblePalette: (enabled) => applyAccessiblePalette(enabled),
   onToggleLightMode: () => applyLightMode(!settings.lightMode)
 });
 
 applyLightMode(settings.lightMode);
+applyAccessiblePalette(settings.accessiblePalette);
 hud.setScreen('menu');
 
 let accumulator = 0;
@@ -200,6 +209,8 @@ function frame(now) {
         } else if (
           ev.name === 'mote_picked' ||
           ev.name === 'deposit' ||
+          ev.name === 'refuel' ||
+          ev.name === 'lantern_out' ||
           ev.name === 'lantern_lit' ||
           ev.name === 'dash' ||
           ev.name === 'shade_spawned' ||
@@ -253,6 +264,7 @@ window.__GAME_DEBUG__ = {
   getTotalScore,
   startNight: (n) => startNight(n),
   setLightMode: (enabled) => applyLightMode(Boolean(enabled)),
+  setAccessiblePalette: (enabled) => applyAccessiblePalette(Boolean(enabled)),
   getRenderStats: () => ({
     calls: renderApp.renderer.info.render.calls,
     triangles: renderApp.renderer.info.render.triangles,
