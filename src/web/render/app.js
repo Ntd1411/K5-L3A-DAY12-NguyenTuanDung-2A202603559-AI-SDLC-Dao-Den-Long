@@ -40,11 +40,25 @@ export function createRenderApp(canvas) {
     e.preventDefault();
   });
 
+  function setLightMode(enabled) {
+    if (enabled) {
+      renderer.setPixelRatio(1);
+      renderer.shadowMap.enabled = false;
+      renderer.toneMapping = THREE.NoToneMapping;
+    } else {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    }
+    handleResize();
+  }
+
   return {
     renderer,
     scene,
     camera,
     isWebGL2: renderer.capabilities.isWebGL2,
+    setLightMode,
     dispose() {
       window.removeEventListener('resize', handleResize);
       renderer.dispose();

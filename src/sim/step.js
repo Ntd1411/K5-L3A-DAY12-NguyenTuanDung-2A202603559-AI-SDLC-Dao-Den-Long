@@ -50,9 +50,13 @@ export function stepSimulation(sim, framePatch = null) {
 
   const jumpTriggered = input.jump && !prev.jump;
   const interactTriggered = input.interact && !prev.interact;
+  const pulseTriggered = input.pulse && !prev.pulse;
 
   const nextTick = sim.tick + 1;
   const events = [];
+
+  sim.player.invulnTimer = Math.max(0, sim.player.invulnTimer - SIM_DT);
+  sim.player.pulseCooldown = Math.max(0, sim.player.pulseCooldown - SIM_DT);
 
   // 1. Horizontal movement transformed by camera yaw
   let mx = Math.max(-1, Math.min(1, input.move[0]));
@@ -135,6 +139,119 @@ export function stepSimulation(sim, framePatch = null) {
             data: { lantern_id: target.id }
           });
         }
+      }
+    }
+  }
+
+  // 4b. Light pulse (Q): stun & push nearby shades
+  if (
+    pulseTriggered &&
+    sim.player.carried >= sim.tuning.pulse_cost &&
+    sim.player.pulseCooldown <= 0
+  ) {
+    sim.player.carried -= sim.tuning.pulse_cost;
+    sim.player.pulseCooldown = sim.tuning.pulse_cooldown_s;
+    const stunnedIds = [];
+    for (const shade of sim.shades) {
+      const dx = shade.pos[0] - sim.player.pos[0];
+      const dz = shade.pos[2] - sim.player.pos[2];
+      const d = Math.hypot(dx, dz);
+      if (d <= sim.tuning.pulse_radius) {
+        shade.stunTimer = sim.tuning.pulse_stun_s;
+        shade.state = 'stunned';
+        const nx = d > 1e-6 ? dx / d : 0;
+        const nz = d > 1e-6 ? dz / d : 1;
+        shade.pos[0] += nx * sim.tuning.pulse_push_m;
+        shade.pos[2] += nz * sim.tuning.pulse_push_m;
+        clampToIsland(shade.pos);
+        stunnedIds.push(shade.id);
+        sim.score += sim.tuning.score.per_stun;
+      }
+    }
+    events.push({
+      type: 'event',
+      tick: nextTick,
+      name: 'pulse',
+      data: { stunned_ids: stunnedIds }
+    });
+  }
+
+  // 4c. Periodic shade spawning (every 30s = 1800 ticks, max 5)
+  if (sim.randomShades && nextTick % 1800 === 0 && sim.shades.length < 5) {
+    const angle = sim.rng() * Math.PI * 2;
+    const radius = 26 + sim.rng() * 6;
+    const id = `S${sim.nextShadeIndex++}`;
+    const pos = [Math.cos(angle) * radius, 0, Math.sin(angle) * radius];
+    for (const lantern of sim.lanterns) {
+      if (!lantern.lit) continue;
+      const dx = pos[0] - lantern.pos[0];
+      const dz = pos[2] - lantern.pos[2];
+      const d = Math.hypot(dx, dz);
+      if (d < sim.tuning.safe_radius) {
+        const nx = d > 1e-6 ? dx / d : 0;
+        const nz = d > 1e-6 ? dz / d : 1;
+        pos[0] = lantern.pos[0] + nx * sim.tuning.safe_radius;
+        pos[2] = lantern.pos[2] + nz * sim.tuning.safe_radius;
+      }
+    }
+    clampToIsland(pos);
+    sim.shades.push({ id, pos, state: 'chase', stunTimer: 0 });
+    events.push({
+      type: 'event',
+      tick: nextTick,
+      name: 'shade_spawned',
+      data: { id }
+    });
+  }
+
+  // 4d. Update shades (stun timer, chase player, avoid lit lantern safe_radius)
+  for (const shade of sim.shades) {
+    if (shade.stunTimer > 0) {
+      shade.stunTimer = Math.max(0, shade.stunTimer - SIM_DT);
+      shade.state = shade.stunTimer > 0 ? 'stunned' : 'chase';
+    } else {
+      shade.state = 'chase';
+      const dx = sim.player.pos[0] - shade.pos[0];
+      const dz = sim.player.pos[2] - shade.pos[2];
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-6) {
+        const step = Math.min(d, sim.tuning.shade_speed * SIM_DT);
+        shade.pos[0] += (dx / d) * step;
+        shade.pos[2] += (dz / d) * step;
+      }
+    }
+
+    for (const lantern of sim.lanterns) {
+      if (!lantern.lit) continue;
+      const dx = shade.pos[0] - lantern.pos[0];
+      const dz = shade.pos[2] - lantern.pos[2];
+      const d = Math.hypot(dx, dz);
+      if (d < sim.tuning.safe_radius) {
+        const nx = d > 1e-6 ? dx / d : 0;
+        const nz = d > 1e-6 ? dz / d : 1;
+        shade.pos[0] = lantern.pos[0] + nx * sim.tuning.safe_radius;
+        shade.pos[2] = lantern.pos[2] + nz * sim.tuning.safe_radius;
+      }
+    }
+    clampToIsland(shade.pos);
+  }
+
+  // 4e. Player-shade collision
+  if (sim.player.invulnTimer <= 0) {
+    for (const shade of sim.shades) {
+      if (shade.state === 'stunned') continue;
+      if (distXZ(sim.player.pos, shade.pos) <= sim.tuning.shade_hit_radius) {
+        sim.player.flames = Math.max(0, sim.player.flames - 1);
+        sim.player.invulnTimer = sim.tuning.invuln_s;
+        const dropped = Math.floor(sim.player.carried * sim.tuning.hit_drop_ratio);
+        sim.player.carried -= dropped;
+        events.push({
+          type: 'event',
+          tick: nextTick,
+          name: 'player_hit',
+          data: { by: 'shade', flames: sim.player.flames, dropped }
+        });
+        break;
       }
     }
   }

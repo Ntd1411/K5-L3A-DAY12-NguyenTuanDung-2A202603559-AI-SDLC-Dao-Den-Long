@@ -11,6 +11,30 @@
 - `python3 scripts/verify-headless.py --help` chạy được. Kiểm tra script trong thư mục tạm bằng runner mô phỏng. Cả 10 trường hợp cho kết quả mong đợi, gồm hai lần chạy giống nhau, thắng sớm, đầu ra khác nhau, JSONL sai, thiếu cấu hình và lỗi từ runner.
 - Token và chi phí của lần chuẩn bị chưa có số liệu. Giới hạn ngữ cảnh ở tài liệu lab và PRD-0.
 
+### 20/11/2026 · Mốc C–E (Hoàn thiện Đêm 1, đồ họa/HUD/chơi lại, hiệu năng và README)
+
+- **Giờ làm (ICT, UTC+7)** — Bắt đầu 15:43, hoàn thành Mốc C–E lúc 15:49.
+- **Yêu cầu và giả định**
+  - Mục tiêu: Hoàn thiện mô phỏng Bóng Mực (`shade_spawned`, đuổi theo người chơi, tránh `safe_radius` quanh đèn đã sáng, va chạm `player_hit` và miễn nhiễm `invuln_s`), Xung sáng `Q` (`pulse`, làm choáng `pulse_stun_s`, đẩy lùi `pulse_push_m`, hồi chiêu `pulse_cooldown_s`, trừ `pulse_cost`), 3 kết thúc (`all_lit`, `no_flames`, `dawn`) với thứ tự ưu tiên `all_lit > no_flames > dawn`, đồ họa low-poly đầy đủ + Chế độ Nhẹ, màn kết quả + Chơi lại, đo FPS 720p và hoàn thiện `README.md`.
+  - Giả định thiết kế:
+    - Khi `random_shades !== false`, màn bắt đầu với 2 Bóng Mực (`S1`, `S2`) ở nửa sau đảo (`[-20, 0, -10]`, `[20, 0, -10]`) để không chắn đường học thắp `L1`, và sinh thêm tối đa tới 5 Bóng Mực mỗi 30 giây (`1800` tick) theo `rng`.
+    - `pulse` phát sự kiện `{"type":"event","tick":...,"name":"pulse","data":{"stunned_ids":[...]}}` mỗi lần kích hoạt hợp lệ (kể cả khi `stunned_ids` rỗng).
+    - Khi `shades` bị đẩy hoặc đi vào `safe_radius` của đèn đã sáng (`lit: true`), đẩy lùi ra rìa `safe_radius` trên mặt phẳng XZ.
+- **Tiêu chí nghiệm thu**
+  - `npm test` kiểm chứng đủ `pulse`, `player_hit`, `invuln_s`, `safe_radius`, cả 3 kết thúc (`all_lit`, `no_flames`, `dawn`), ưu tiên kết thúc cùng tick, tính tất định và lỗi CLI mã `2`.
+  - `verify-headless.py` xác nhận các kịch bản thắng/thua/xung cho output giống hệt nhau qua 2 lần chạy.
+  - Trình duyệt chơi được từ đầu tới thắng/thua và bấm **Chơi lại**; chế độ Nhẹ ở `1280×720` đạt trung bình `>= 30 FPS`.
+  - `README.md` có hướng dẫn cài & chạy trong tối đa 3 lệnh, điều khiển, tính điểm, lệnh test/headless và liên kết bằng chứng.
+- **Bằng chứng Mốc C–E (15:46–15:49 ICT)**
+  - `npm test`: **Đạt (12/12 test)** ([sim-m1-m2.test.js](tests/sim-m1-m2.test.js), [web-input.test.js](tests/web-input.test.js), [sim-m3-night1.test.js](tests/sim-m3-night1.test.js)).
+  - `npm run build`: **Đạt** (`dist/`).
+  - `scripts/verify-headless.py`: **Đạt** cho cả 5 kịch bản ([smoke.jsonl](docs/proof/phase-1/smoke.jsonl), [light-l1.jsonl](docs/proof/phase-1/light-l1.jsonl), [night1-pulse-win.jsonl](docs/proof/phase-1/night1-pulse-win.jsonl), [night1-no-flames.jsonl](docs/proof/phase-1/night1-no-flames.jsonl), [night1-dawn.jsonl](docs/proof/phase-1/night1-dawn.jsonl)).
+  - **Playtest & Hiệu năng 720p (`game-playtest`)**:
+    - Máy đo: `Linux 7.3.4-1-cachyos x86_64`, `Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz`, Chrome 157 (`WebGL 2`), bản build `vite preview` chế độ Nhẹ (`?light=1`) ở `1280×720`.
+    - Kết quả (`600` mẫu khung hình): **`58.8 FPS` trung bình**, **`p95 = 16.8 ms`** (đạt mục tiêu `>= 30 FPS`).
+    - Đã kiểm tra thắp `L1`, Bóng Mực dừng ngoài `safe_radius`, xung `Q` tiêu `2` đom đóm và hiện hồi chiêu, `resetGame()` đưa trạng thái về tick 0 sạch sẽ. Ảnh chụp: [04-night1-lightmode-720p.png](docs/proof/phase-1/04-night1-lightmode-720p.png).
+- **AI và retro** — Trong test `pulse`, phát hiện Bóng Mực ở trạng thái `chase` tiến thêm 2 tick trước khi nhấn `Q` nên khoảng cách sau đẩy phụ thuộc vị trí ngay trước tick xung; đã chỉnh assertion theo `distBeforePulse + pulse_push_m`. Đã thêm `<link rel="icon" href="data:," />` vào `index.html` để tránh 404 favicon. Token/chi phí chưa có số liệu từ harness.
+
 ### 20/11/2026 · Mốc A–B (Nền tảng và Vòng chơi đầu tiên)
 
 - **Giờ làm (ICT, UTC+7)** — Bắt đầu 15:15, hoàn thành Mốc A–B lúc 15:28.

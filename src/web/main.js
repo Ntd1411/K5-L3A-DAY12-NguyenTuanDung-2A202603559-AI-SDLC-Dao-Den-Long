@@ -15,14 +15,45 @@ const canvas = document.getElementById('game-canvas');
 const hudRoot = document.getElementById('hud-root');
 
 const renderApp = createRenderApp(canvas);
-const sim = createSimulationState({
+let sim = createSimulationState({
   seed: 42,
   tuning: contract.tuning
 });
 const worldView = createWorldView(renderApp.scene, sim);
-const hud = createHud(hudRoot);
 const input = createWebInputController({ initialYawDeg: 0 });
 input.attachWindowListeners(window, canvas);
+
+let lightMode = new URLSearchParams(window.location.search).get('light') === '1';
+
+function applyLightMode(enabled) {
+  lightMode = enabled;
+  renderApp.setLightMode(enabled);
+  worldView.setLightMode(enabled);
+  hud.setLightModeLabel(enabled);
+}
+
+let accumulator = 0;
+let elapsedSec = 0;
+const frameTimesMs = [];
+
+function resetGame() {
+  sim = createSimulationState({
+    seed: 42,
+    tuning: contract.tuning
+  });
+  worldView.reset();
+  accumulator = 0;
+  elapsedSec = 0;
+  worldView.sync(sim, 0, SIM_DT);
+  updateCamera();
+  hud.update(sim, 0);
+}
+
+const hud = createHud(hudRoot, {
+  onToggleLightMode: () => applyLightMode(!lightMode),
+  onReplay: resetGame
+});
+applyLightMode(lightMode);
 
 function updateCamera() {
   const theta = (input.getCamYawDeg() * Math.PI) / 180;
@@ -44,24 +75,40 @@ function updateCamera() {
 }
 
 let lastTime = performance.now();
-let accumulator = 0;
-let elapsedSec = 0;
 
 function frame(now) {
-  const rawDt = Math.min(0.1, (now - lastTime) / 1000);
+  const frameDtMs = now - lastTime;
+  const rawDt = Math.min(0.1, frameDtMs / 1000);
   lastTime = now;
+
+  if (frameDtMs > 0 && frameDtMs < 500) {
+    frameTimesMs.push(frameDtMs);
+    if (frameTimesMs.length > 600) frameTimesMs.shift();
+  }
+
   accumulator += rawDt;
   elapsedSec += rawDt;
 
-  input.updateCameraYaw(rawDt);
-  while (accumulator >= SIM_DT) {
-    stepSimulation(sim, input.consumeTickInput());
-    accumulator -= SIM_DT;
+  if (sim.state === 'playing') {
+    input.updateCameraYaw(rawDt);
+    while (accumulator >= SIM_DT) {
+      const events = stepSimulation(sim, input.consumeTickInput());
+      for (const ev of events) {
+        if (ev.name === 'pulse') {
+          worldView.triggerPulseEffect(sim.player.pos, sim.tuning.pulse_radius);
+        } else if (ev.name === 'player_hit') {
+          hud.triggerHitFlash();
+        }
+      }
+      accumulator -= SIM_DT;
+    }
+  } else {
+    accumulator = 0;
   }
 
-  worldView.sync(sim, elapsedSec);
+  worldView.sync(sim, elapsedSec, rawDt);
   updateCamera();
-  hud.update(sim);
+  hud.update(sim, rawDt);
   renderApp.renderer.render(renderApp.scene, renderApp.camera);
 
   requestAnimationFrame(frame);
@@ -69,10 +116,23 @@ function frame(now) {
 
 window.__GAME_DEBUG__ = {
   isWebGL2: renderApp.isWebGL2,
-  getSnapshot: () => serializeSnapshot(sim)
+  getSnapshot: () => serializeSnapshot(sim),
+  setLightMode: (enabled) => applyLightMode(Boolean(enabled)),
+  resetGame,
+  getPerfStats: () => {
+    if (frameTimesMs.length === 0) return { samples: 0, avgFps: 0, p95Ms: 0 };
+    const sorted = [...frameTimesMs].sort((a, b) => a - b);
+    const avgMs = frameTimesMs.reduce((a, b) => a + b, 0) / frameTimesMs.length;
+    const p95Ms = sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1];
+    return {
+      samples: frameTimesMs.length,
+      avgFps: Number((1000 / avgMs).toFixed(1)),
+      p95Ms: Number(p95Ms.toFixed(2))
+    };
+  }
 };
 
-worldView.sync(sim, 0);
+worldView.sync(sim, 0, SIM_DT);
 updateCamera();
-hud.update(sim);
+hud.update(sim, 0);
 requestAnimationFrame(frame);

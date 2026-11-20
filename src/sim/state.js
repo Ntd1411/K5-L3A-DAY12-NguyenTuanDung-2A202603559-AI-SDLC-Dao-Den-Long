@@ -83,13 +83,19 @@ export function createSimulationState({ seed = 42, tuning, scenario = null }) {
   }
 
   let shades = [];
+  const randomShades = scenario?.random_shades !== false;
   if (scenario?.shades !== undefined) {
     shades = scenario.shades.map((s, idx) => ({
       id: s.id ?? `S${idx + 1}`,
       pos: [...s.pos],
       state: s.state ?? 'chase',
-      stunTimer: 0
+      stunTimer: s.state === 'stunned' ? tuning.pulse_stun_s : 0
     }));
+  } else if (randomShades) {
+    shades = [
+      { id: 'S1', pos: [-20, 0, -10], state: 'chase', stunTimer: 0 },
+      { id: 'S2', pos: [20, 0, -10], state: 'chase', stunTimer: 0 }
+    ];
   }
 
   const player = {
@@ -120,6 +126,8 @@ export function createSimulationState({ seed = 42, tuning, scenario = null }) {
     lanterns,
     motes,
     shades,
+    randomShades,
+    nextShadeIndex: shades.length + 1,
     prevInput: {
       move: [0, 0],
       cam_yaw_deg: 0,
