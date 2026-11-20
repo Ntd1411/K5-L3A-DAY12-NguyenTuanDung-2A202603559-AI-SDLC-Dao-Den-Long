@@ -1,6 +1,8 @@
 # Đảo Đèn Lồng · v1.0.0 (Contract v1.3)
 
 > **Video demo**: [docs/demo/demo.mp4](docs/demo/demo.mp4)
+> 
+> **Link demo**: https://admirable-gingersnap-c2dd06.netlify.app
 
 Game hành động 3D góc nhìn thứ ba bằng **JavaScript, Vite và Three.js (WebGL 2)** với lõi mô phỏng cố định **60 tick/giây** dùng chung cho trình duyệt và CLI headless (Test Contract v1.3). Người chơi điều khiển Mây đi qua 3 hòn đảo (**Đảo Bến**, **Đảo Cau**, **Đảo Chuông**), thu thập đom đóm, thắp và châm dầu cho Đèn Lồng Lớn để giữ đảo sáng tới bình minh.
 
