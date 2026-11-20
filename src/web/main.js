@@ -15,6 +15,7 @@ import { createWebInputController } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { createAudioController } from './audio.js';
 import { fetchLeaderboard, submitLeaderboardScore } from './leaderboard.js';
+import { createDemoBot } from './demo-bot.js';
 
 const canvas = document.getElementById('game-canvas');
 const hudRoot = document.getElementById('hud-root');
@@ -45,6 +46,8 @@ let uiPhase = isBenchMode ? 'bench' : 'menu';
 let settingsReturnPhase = 'menu';
 let lastCountdownSec = -1;
 let prevWindWarning = false;
+let isAutoDemo = false;
+const demoBot = createDemoBot();
 
 function getTotalScore() {
   return nightScores[1] + nightScores[2] + nightScores[3];
@@ -65,7 +68,8 @@ function startNight(nightNum) {
   sim = createSimulationState({
     night: currentNight,
     seed: currentSeed,
-    tuning: contract.tuning
+    tuning: contract.tuning,
+    moteMultiplier: 4
   });
   input.setCamYawDeg(0);
   worldView.rebuildForSim(sim);
@@ -125,11 +129,33 @@ function applyLargeText(enabled) {
 const hud = createHud(hudRoot, {
   onStartGame: () => {
     audio.ensureContext();
+    isAutoDemo = false;
+    hud.setDemoActive(false);
     nightScores = { 1: 0, 2: 0, 3: 0 };
     nightsWonCount = 0;
     currentNight = 1;
     uiPhase = 'intro';
     hud.showIntro(1, getMapConfig(1));
+  },
+  onStartDemo: () => {
+    audio.ensureContext();
+    isAutoDemo = true;
+    demoBot.reset();
+    nightScores = { 1: 0, 2: 0, 3: 0 };
+    nightsWonCount = 0;
+    hud.setDemoActive(true);
+    startNight(1);
+  },
+  onStopDemo: () => {
+    isAutoDemo = false;
+    hud.setDemoActive(false);
+    uiPhase = 'menu';
+    hud.setScreen('menu');
+  },
+  onNextDemo: () => {
+    if (!isAutoDemo) return;
+    demoBot.reset();
+    startNight((currentNight % 3) + 1);
   },
   onBeginNight: () => {
     audio.ensureContext();
@@ -149,6 +175,8 @@ const hud = createHud(hudRoot, {
     hud.showIntro(next, getMapConfig(next));
   },
   onToMenu: () => {
+    isAutoDemo = false;
+    hud.setDemoActive(false);
     uiPhase = 'menu';
     hud.setScreen('menu');
   },
@@ -293,7 +321,15 @@ function frame(now) {
     input.updateCameraYaw(rawDt);
     while (accumulator >= SIM_DT && sim.state === 'playing') {
       const prevGrounded = sim.player.grounded;
-      const events = stepSimulation(sim, input.consumeTickInput());
+      let tickInput;
+      if (isAutoDemo) {
+        const botOut = demoBot.step(sim, SIM_DT);
+        tickInput = botOut.frame;
+        input.setCamYawDeg(botOut.camYawDeg);
+      } else {
+        tickInput = input.consumeTickInput();
+      }
+      const events = stepSimulation(sim, tickInput);
       if (prevGrounded && !sim.player.grounded && sim.player.vel[1] > 0) {
         audio.playCue('jump');
       }
@@ -344,6 +380,23 @@ function frame(now) {
         }
         uiPhase = 'result';
         hud.showResult(sim, getTotalScore());
+        if (isAutoDemo) {
+          const finishedNight = sim.night;
+          const wasWon = sim.state === 'won';
+          setTimeout(() => {
+            if (!isAutoDemo) return;
+            if (wasWon && finishedNight < 3) {
+              demoBot.reset();
+              startNight(finishedNight + 1);
+            } else if (!wasWon) {
+              demoBot.reset();
+              startNight(finishedNight);
+            } else {
+              isAutoDemo = false;
+              hud.setDemoActive(false);
+            }
+          }, 2200);
+        }
       }
 
       accumulator -= SIM_DT;

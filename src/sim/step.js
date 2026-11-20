@@ -894,7 +894,7 @@ export function stepSimulation(sim, framePatch = null) {
   // 10. Scheduled spawns (using sim_tick; spawned entities interact starting next tick)
   if (sim.randomMotes && nextSimTick % 240 === 0) {
     const activeCount = sim.motes.reduce((acc, m) => acc + (m.active ? 1 : 0), 0);
-    if (activeCount < 30) {
+    if (activeCount < (sim.moteCap ?? 30)) {
       const emptySpawns = sim.map.moteSpawns.filter(
         (sp) => !sim.motes.some((m) => m.active && dist3D(m.pos, sp) <= 0.5)
       );

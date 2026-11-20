@@ -55,6 +55,8 @@ export function createHud(root, callbacks) {
           <span class="hud-label">Tổng</span>
           <span class="hud-value gold" data-hud="total-score">0</span>
         </div>
+        <button type="button" class="hud-btn hidden" data-hud="next-demo-btn">Đêm tiếp (Demo)</button>
+        <button type="button" class="hud-btn hidden" data-hud="stop-demo-btn">Dừng Demo</button>
         <button type="button" class="hud-btn" data-hud="light-mode-btn">Chuẩn</button>
         <button type="button" class="hud-btn" data-hud="pause-btn">Tạm dừng (P)</button>
       </div>
@@ -86,6 +88,7 @@ export function createHud(root, callbacks) {
         <p class="modal-subtitle">Giữ đủ đèn sáng tới bình minh trên cả ba hòn đảo.</p>
         <div class="modal-actions">
           <button type="button" class="primary-btn" data-action="start-game">Bắt đầu hành trình</button>
+          <button type="button" class="secondary-btn" data-action="start-demo">Chạy Demo</button>
           <button type="button" class="secondary-btn" data-action="open-leaderboard">Bảng xếp hạng</button>
           <button type="button" class="secondary-btn" data-action="open-settings">Cài đặt</button>
         </div>
@@ -240,6 +243,8 @@ export function createHud(root, callbacks) {
   const shadeArrowEl = root.querySelector('[data-hud="shade-arrow"]');
   const hitFlashEl = root.querySelector('[data-hud="hit-flash"]');
   const lightModeBtn = root.querySelector('[data-hud="light-mode-btn"]');
+  const nextDemoBtn = root.querySelector('[data-hud="next-demo-btn"]');
+  const stopDemoBtn = root.querySelector('[data-hud="stop-demo-btn"]');
 
   const introNightEl = root.querySelector('[data-hud="intro-night"]');
   const introIslandEl = root.querySelector('[data-hud="intro-island"]');
@@ -319,6 +324,9 @@ export function createHud(root, callbacks) {
   });
 
   root.querySelector('[data-action="start-game"]').addEventListener('click', callbacks.onStartGame);
+  root.querySelector('[data-action="start-demo"]').addEventListener('click', callbacks.onStartDemo);
+  nextDemoBtn.addEventListener('click', callbacks.onNextDemo);
+  stopDemoBtn.addEventListener('click', callbacks.onStopDemo);
   root.querySelector('[data-action="begin-night"]').addEventListener('click', callbacks.onBeginNight);
   root.querySelector('[data-action="resume"]').addEventListener('click', callbacks.onResume);
   root.querySelectorAll('[data-action="replay-night"]').forEach((btn) =>
@@ -436,6 +444,11 @@ export function createHud(root, callbacks) {
 
   function setLightModeLabel(enabled) {
     lightModeBtn.textContent = enabled ? 'Nhẹ' : 'Chuẩn';
+  }
+
+  function setDemoActive(active) {
+    nextDemoBtn.classList.toggle('hidden', !active);
+    stopDemoBtn.classList.toggle('hidden', !active);
   }
 
   function setAccessiblePalette(enabled) {
@@ -661,6 +674,7 @@ export function createHud(root, callbacks) {
     showSettings,
     hideSettings,
     setLightModeLabel,
+    setDemoActive,
     setAccessiblePalette,
     setReduceMotion,
     setLargeText,

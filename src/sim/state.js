@@ -11,9 +11,9 @@ function pickDistinctIndices(rng, total, count) {
   return indices.slice(0, Math.min(count, total));
 }
 
-function generateInitialMotes(rng, map) {
+function generateInitialMotes(rng, map, multiplier = 1) {
   const chosen = pickDistinctIndices(rng, map.moteSpawns.length, 20);
-  return chosen.map((idx, i) => ({
+  const motes = chosen.map((idx, i) => ({
     id: `M${i + 1}`,
     pos: [...map.moteSpawns[idx]],
     active: true,
@@ -21,6 +21,28 @@ function generateInitialMotes(rng, map) {
     ttlTicks: null,
     spawnedThisTick: false
   }));
+  const targetCount = 20 * multiplier;
+  let attempts = 0;
+  while (motes.length < targetCount && attempts < targetCount * 8) {
+    attempts += 1;
+    const base = map.moteSpawns[Math.floor(rng() * map.moteSpawns.length)];
+    const angle = rng() * Math.PI * 2;
+    const jitter = 2.0 + rng() * 5.5;
+    const x = round3(base[0] + Math.cos(angle) * jitter);
+    const z = round3(base[2] + Math.sin(angle) * jitter);
+    const gy = getGroundHeight(map.night, x, z, base[1] + 0.5);
+    if (gy !== null && Math.abs(gy - base[1]) <= 0.5) {
+      motes.push({
+        id: `M${motes.length + 1}`,
+        pos: [x, gy, z],
+        active: true,
+        kind: 'random',
+        ttlTicks: null,
+        spawnedThisTick: false
+      });
+    }
+  }
+  return motes;
 }
 
 function maxNumericId(items, prefix) {
@@ -43,7 +65,8 @@ export function createSimulationState({
   seed = 42,
   tuning,
   scenario = null,
-  benchMode = false
+  benchMode = false,
+  moteMultiplier = 1
 }) {
   const rng = createRng(seed);
   const map = getMapConfig(night);
@@ -205,7 +228,7 @@ export function createSimulationState({
       };
     });
   } else if (randomMotes) {
-    motes = generateInitialMotes(rng, map);
+    motes = generateInitialMotes(rng, map, moteMultiplier);
   }
 
   const randomShades = scenario?.random_shades !== false;
@@ -336,6 +359,7 @@ export function createSimulationState({
     drifters,
     charms,
     randomMotes,
+    moteCap: 30 * moteMultiplier,
     randomShades,
     randomDrifters,
     windEnabled,
