@@ -15,8 +15,17 @@ function assertVec3(v, label) {
   }
 }
 
+function assertNonNegInt(v, label) {
+  if (!Number.isInteger(v) || v < 0) {
+    throw new FormatError(`${label} must be a non-negative integer.`);
+  }
+}
+
+const VALID_SHADE_STATES = new Set(['spawning', 'wander', 'chase', 'recoil', 'stunned']);
+const VALID_DRIFTER_STATES = new Set(['idle', 'chase', 'flee', 'removed']);
+
 /**
- * Validate parsed inputs JSON according to Test Contract v1.0.
+ * Validate parsed inputs JSON according to Test Contract v1.1.
  * @param {unknown} raw
  * @returns {{ frames: Array<object> }}
  */
@@ -63,7 +72,7 @@ export function validateInputs(raw) {
     if (frame.cam_yaw_deg !== undefined && !isFiniteNumber(frame.cam_yaw_deg)) {
       throw new FormatError(`frames[${i}].cam_yaw_deg must be a finite number.`);
     }
-    for (const key of ['jump', 'interact', 'pulse', 'dash']) {
+    for (const key of ['jump', 'interact', 'pulse', 'dash', 'pause']) {
       if (frame[key] !== undefined && typeof frame[key] !== 'boolean') {
         throw new FormatError(`frames[${i}].${key} must be a boolean.`);
       }
@@ -73,7 +82,7 @@ export function validateInputs(raw) {
 }
 
 /**
- * Validate parsed scenario JSON according to Test Contract v1.0.
+ * Validate parsed scenario JSON according to Test Contract v1.1.
  * @param {unknown} raw
  * @returns {object}
  */
@@ -88,20 +97,20 @@ export function validateScenario(raw) {
     if (raw.player.pos !== undefined) {
       assertVec3(raw.player.pos, 'scenario.player.pos');
     }
-    if (
-      raw.player.carried !== undefined &&
-      (!Number.isInteger(raw.player.carried) || raw.player.carried < 0)
-    ) {
-      throw new FormatError('scenario.player.carried must be a non-negative integer.');
-    }
-    if (
-      raw.player.flames !== undefined &&
-      (!Number.isInteger(raw.player.flames) || raw.player.flames < 0)
-    ) {
-      throw new FormatError('scenario.player.flames must be a non-negative integer.');
+    for (const key of [
+      'carried',
+      'flames',
+      'invuln_ticks',
+      'dash_cd_ticks',
+      'pulse_cd_ticks',
+      'charm_ticks'
+    ]) {
+      if (raw.player[key] !== undefined) {
+        assertNonNegInt(raw.player[key], `scenario.player.${key}`);
+      }
     }
   }
-  for (const key of ['random_motes', 'random_shades']) {
+  for (const key of ['random_motes', 'random_shades', 'random_drifters', 'wind_enabled']) {
     if (raw[key] !== undefined && typeof raw[key] !== 'boolean') {
       throw new FormatError(`scenario.${key} must be a boolean.`);
     }
@@ -115,6 +124,12 @@ export function validateScenario(raw) {
         assertVec3(m, `scenario.motes[${i}]`);
       } else if (m && typeof m === 'object') {
         assertVec3(m.pos, `scenario.motes[${i}].pos`);
+        if (m.ttl_s !== undefined && (!isFiniteNumber(m.ttl_s) || m.ttl_s < 0)) {
+          throw new FormatError(`scenario.motes[${i}].ttl_s must be non-negative.`);
+        }
+        if (m.ttl_ticks !== undefined) {
+          assertNonNegInt(m.ttl_ticks, `scenario.motes[${i}].ttl_ticks`);
+        }
       } else {
         throw new FormatError(`scenario.motes[${i}] must be a [x,y,z] array or {pos}.`);
       }
@@ -129,6 +144,57 @@ export function validateScenario(raw) {
         throw new FormatError(`scenario.shades[${i}] must be an object.`);
       }
       assertVec3(s.pos, `scenario.shades[${i}].pos`);
+      if (s.state !== undefined && !VALID_SHADE_STATES.has(s.state)) {
+        throw new FormatError(`scenario.shades[${i}].state is invalid: "${s.state}".`);
+      }
+      if (s.state_ticks_left !== undefined) {
+        assertNonNegInt(s.state_ticks_left, `scenario.shades[${i}].state_ticks_left`);
+      }
+    });
+  }
+  if (raw.drifters !== undefined) {
+    if (!Array.isArray(raw.drifters)) {
+      throw new FormatError('scenario.drifters must be an array.');
+    }
+    raw.drifters.forEach((d, i) => {
+      if (!d || typeof d !== 'object' || Array.isArray(d)) {
+        throw new FormatError(`scenario.drifters[${i}] must be an object.`);
+      }
+      assertVec3(d.pos, `scenario.drifters[${i}].pos`);
+      if (d.state !== undefined && !VALID_DRIFTER_STATES.has(d.state)) {
+        throw new FormatError(`scenario.drifters[${i}].state is invalid: "${d.state}".`);
+      }
+      if (d.stolen !== undefined) {
+        assertNonNegInt(d.stolen, `scenario.drifters[${i}].stolen`);
+      }
+      if (d.state_ticks_left !== undefined) {
+        assertNonNegInt(d.state_ticks_left, `scenario.drifters[${i}].state_ticks_left`);
+      }
+    });
+  }
+  if (raw.charms !== undefined) {
+    if (!Array.isArray(raw.charms)) {
+      throw new FormatError('scenario.charms must be an array.');
+    }
+    raw.charms.forEach((c, i) => {
+      if (!c || typeof c !== 'object' || Array.isArray(c)) {
+        throw new FormatError(`scenario.charms[${i}] must be an object.`);
+      }
+      if (typeof c.id !== 'string' || !c.id) {
+        throw new FormatError(`scenario.charms[${i}].id must be a non-empty string.`);
+      }
+      if (c.pos !== undefined) {
+        assertVec3(c.pos, `scenario.charms[${i}].pos`);
+      }
+      if (c.available !== undefined && typeof c.available !== 'boolean') {
+        throw new FormatError(`scenario.charms[${i}].available must be a boolean.`);
+      }
+      if (c.respawn_s !== undefined && (!isFiniteNumber(c.respawn_s) || c.respawn_s < 0)) {
+        throw new FormatError(`scenario.charms[${i}].respawn_s must be non-negative.`);
+      }
+      if (c.respawn_ticks !== undefined) {
+        assertNonNegInt(c.respawn_ticks, `scenario.charms[${i}].respawn_ticks`);
+      }
     });
   }
   if (raw.lanterns !== undefined) {
@@ -145,11 +211,8 @@ export function validateScenario(raw) {
       if (l.pos !== undefined) {
         assertVec3(l.pos, `scenario.lanterns[${i}].pos`);
       }
-      if (
-        l.deposited !== undefined &&
-        (!Number.isInteger(l.deposited) || l.deposited < 0)
-      ) {
-        throw new FormatError(`scenario.lanterns[${i}].deposited must be a non-negative integer.`);
+      if (l.deposited !== undefined) {
+        assertNonNegInt(l.deposited, `scenario.lanterns[${i}].deposited`);
       }
       if (l.lit !== undefined && typeof l.lit !== 'boolean') {
         throw new FormatError(`scenario.lanterns[${i}].lit must be a boolean.`);

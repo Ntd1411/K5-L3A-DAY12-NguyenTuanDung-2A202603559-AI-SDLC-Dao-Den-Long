@@ -66,8 +66,8 @@ function parseArgs(argv) {
   if (!Number.isInteger(args.seed)) {
     throw new Error('--seed must be an integer.');
   }
-  if (args.night !== 1) {
-    throw new Error('Only --night 1 is supported in Phase 1.');
+  if (![1, 2, 3].includes(args.night)) {
+    throw new Error('--night must be 1, 2, or 3.');
   }
   if (!Number.isInteger(args.ticks) || args.ticks < 0) {
     throw new Error('--ticks must be a non-negative integer.');
@@ -115,7 +115,7 @@ function main() {
   }
 
   let scenario = null;
-  let inputsByTick = new Map();
+  const inputsByTick = new Map();
 
   try {
     if (args.scenario) {
@@ -137,6 +137,7 @@ function main() {
   }
 
   const sim = createSimulationState({
+    night: args.night,
     seed: args.seed,
     tuning: contract.tuning,
     scenario
@@ -144,9 +145,17 @@ function main() {
 
   const lines = [];
   lines.push(JSON.stringify(serializeSnapshot(sim)));
+  lines.push(
+    JSON.stringify({
+      type: 'event',
+      tick: 0,
+      name: 'night_start',
+      data: { night: sim.night }
+    })
+  );
 
   for (let k = 0; k < args.ticks; k += 1) {
-    if (sim.state !== 'playing') break;
+    if (sim.state === 'won' || sim.state === 'lost') break;
     const framePatch = inputsByTick.get(k) ?? null;
     const events = stepSimulation(sim, framePatch);
     for (const event of events) {

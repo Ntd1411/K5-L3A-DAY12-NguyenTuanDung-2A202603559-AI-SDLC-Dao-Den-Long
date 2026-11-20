@@ -1,55 +1,48 @@
 import { createRng } from './rng.js';
-import { ISLAND_RADIUS, round3, roundPos } from './math.js';
+import { SIM_DT, TICK_RATE, round3, roundPos } from './math.js';
+import { getGroundHeight, getMapConfig } from './maps.js';
 
-export const DEFAULT_LANTERN_LAYOUT = [
-  { id: 'L1', pos: [0, 0, 14] },
-  { id: 'L2', pos: [18, 0, 10] },
-  { id: 'L3', pos: [-18, 0, 10] },
-  { id: 'L4', pos: [15, 0, -16] },
-  { id: 'L5', pos: [-15, 0, -16] }
-];
-
-const STARTER_MOTE_POSITIONS = [
-  [0, 0, 3.2],
-  [0, 0, 6.0],
-  [1.4, 0, 8.8],
-  [-1.4, 0, 8.8],
-  [0, 0, 11.4],
-  [2.2, 0, 14.0]
-];
-
-function generateDefaultMotes(rng, count = 40) {
-  const motes = [];
-  let nextId = 1;
-  for (const pos of STARTER_MOTE_POSITIONS) {
-    motes.push({
-      id: `M${nextId++}`,
-      pos: [...pos],
-      active: true
-    });
+function pickDistinctIndices(rng, total, count) {
+  const indices = Array.from({ length: total }, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
   }
-  while (motes.length < count) {
-    const angle = rng() * Math.PI * 2;
-    const radius = 6 + Math.sqrt(rng()) * (ISLAND_RADIUS - 9);
-    const x = round3(Math.cos(angle) * radius);
-    const z = round3(Math.sin(angle) * radius);
-    motes.push({
-      id: `M${nextId++}`,
-      pos: [x, 0, z],
-      active: true
-    });
+  return indices.slice(0, Math.min(count, total));
+}
+
+function generateInitialMotes(rng, map) {
+  const chosen = pickDistinctIndices(rng, map.moteSpawns.length, 20);
+  return chosen.map((idx, i) => ({
+    id: `M${i + 1}`,
+    pos: [...map.moteSpawns[idx]],
+    active: true,
+    kind: 'random',
+    ttlTicks: null,
+    spawnedThisTick: false
+  }));
+}
+
+function maxNumericId(items, prefix) {
+  let maxNum = items.length;
+  const re = new RegExp(`^${prefix}(\\d+)$`);
+  for (const item of items) {
+    const match = re.exec(item.id);
+    if (match) {
+      maxNum = Math.max(maxNum, Number(match[1]));
+    }
   }
-  return motes;
+  return maxNum;
 }
 
 /**
- * Create initial simulation state from seed, tuning, and optional validated scenario.
- * Emits no events and grants no score.
+ * Create initial simulation state from night, seed, tuning, and optional validated scenario.
  */
-export function createSimulationState({ seed = 42, tuning, scenario = null }) {
+export function createSimulationState({ night = 1, seed = 42, tuning, scenario = null }) {
   const rng = createRng(seed);
+  const map = getMapConfig(night);
 
-  const lanterns = DEFAULT_LANTERN_LAYOUT.map((entry) => ({
+  const lanterns = map.lanterns.map((entry) => ({
     id: entry.id,
     pos: [...entry.pos],
     lit: false,
@@ -71,97 +64,204 @@ export function createSimulationState({ seed = 42, tuning, scenario = null }) {
     }
   }
 
+  const randomMotes = scenario?.random_motes !== false;
   let motes = [];
   if (scenario?.motes !== undefined) {
-    motes = scenario.motes.map((m, idx) => ({
-      id: Array.isArray(m) ? `M${idx + 1}` : (m.id ?? `M${idx + 1}`),
-      pos: Array.isArray(m) ? [...m] : [...m.pos],
-      active: true
-    }));
-  } else if (scenario?.random_motes !== false) {
-    motes = generateDefaultMotes(rng);
+    motes = scenario.motes.map((m, idx) => {
+      const isArr = Array.isArray(m);
+      const kind = isArr ? 'random' : (m.kind ?? 'random');
+      let ttlTicks = null;
+      if (!isArr) {
+        if (m.ttl_ticks !== undefined) ttlTicks = m.ttl_ticks;
+        else if (m.ttl_s !== undefined) ttlTicks = Math.round(m.ttl_s * TICK_RATE);
+        else if (kind === 'dropped') ttlTicks = 480;
+      }
+      return {
+        id: isArr ? `M${idx + 1}` : (m.id ?? `M${idx + 1}`),
+        pos: isArr ? [...m] : [...m.pos],
+        active: true,
+        kind,
+        ttlTicks,
+        spawnedThisTick: false
+      };
+    });
+  } else if (randomMotes) {
+    motes = generateInitialMotes(rng, map);
   }
 
-  let shades = [];
   const randomShades = scenario?.random_shades !== false;
+  let shades = [];
   if (scenario?.shades !== undefined) {
-    shades = scenario.shades.map((s, idx) => ({
-      id: s.id ?? `S${idx + 1}`,
-      pos: [...s.pos],
-      state: s.state ?? 'chase',
-      stunTimer: s.state === 'stunned' ? tuning.pulse_stun_s : 0
-    }));
-  } else if (randomShades) {
-    shades = [
-      { id: 'S1', pos: [-20, 0, -10], state: 'chase', stunTimer: 0 },
-      { id: 'S2', pos: [20, 0, -10], state: 'chase', stunTimer: 0 }
-    ];
+    shades = scenario.shades.map((s, idx) => {
+      const state = s.state ?? 'chase';
+      let stateTicksLeft = s.state_ticks_left ?? 0;
+      if (s.state_ticks_left === undefined) {
+        if (state === 'stunned') stateTicksLeft = Math.round(tuning.pulse_stun_s * TICK_RATE);
+        else if (state === 'recoil') stateTicksLeft = 60;
+        else if (state === 'spawning') stateTicksLeft = 30;
+      }
+      return {
+        id: s.id ?? `S${idx + 1}`,
+        pos: [...s.pos],
+        state,
+        stateTicksLeft,
+        pushTicksLeft: 0,
+        pushDir: [1, 0],
+        safePushTicksLeft: 0,
+        wanderAngle: rng() * Math.PI * 2,
+        spawnedThisTick: false
+      };
+    });
   }
+
+  const randomDrifters = scenario?.random_drifters !== undefined
+    ? scenario.random_drifters
+    : map.hasDrifters;
+  let drifters = [];
+  if (scenario?.drifters !== undefined) {
+    drifters = scenario.drifters.map((d, idx) => ({
+      id: d.id ?? `D${idx + 1}`,
+      pos: [...d.pos],
+      state: d.state ?? 'idle',
+      stolen: d.stolen ?? 0,
+      hasStolen: (d.stolen ?? 0) > 0 || d.state === 'flee',
+      stateTicksLeft: d.state_ticks_left ?? (d.state === 'flee' ? 240 : 0),
+      wanderAngle: rng() * Math.PI * 2,
+      spawnedThisTick: false
+    }));
+  }
+
+  let charms = [];
+  if (scenario?.charms !== undefined) {
+    charms = scenario.charms.map((c) => {
+      const defaultDef = map.charms.find((mc) => mc.id === c.id);
+      const pos = c.pos ? [...c.pos] : (defaultDef ? [...defaultDef.pos] : [0, 0, 0]);
+      const available = c.available !== undefined ? c.available : true;
+      let respawnTicks = 0;
+      if (!available) {
+        if (c.respawn_ticks !== undefined) respawnTicks = c.respawn_ticks;
+        else if (c.respawn_s !== undefined) respawnTicks = Math.round(c.respawn_s * TICK_RATE);
+      }
+      return {
+        id: c.id,
+        pos,
+        available,
+        respawnTicks
+      };
+    });
+  } else {
+    charms = map.charms.map((c) => ({
+      id: c.id,
+      pos: [...c.pos],
+      available: true,
+      respawnTicks: 0
+    }));
+  }
+
+  const startPos = scenario?.player?.pos ? [...scenario.player.pos] : [...map.spawn];
+  const groundAtStart = getGroundHeight(map.night, startPos[0], startPos[2], startPos[1]);
+  const grounded = groundAtStart !== null && startPos[1] <= groundAtStart + 0.0001;
 
   const player = {
-    pos: scenario?.player?.pos ? [...scenario.player.pos] : [0, 0, 0],
-    vy: 0,
-    grounded: !scenario?.player?.pos || scenario.player.pos[1] <= 0.0001,
+    pos: startPos,
+    vel: [0, 0, 0],
+    grounded,
     facingYawDeg: 0,
     flames: scenario?.player?.flames ?? tuning.flames,
     carried: scenario?.player?.carried ?? 0,
-    invulnTimer: 0,
-    pulseCooldown: 0
+    invulnTicks: scenario?.player?.invuln_ticks ?? 0,
+    dashTicks: 0,
+    dashDir: [0, 1],
+    dashCdTicks: scenario?.player?.dash_cd_ticks ?? 0,
+    pulseCdTicks: scenario?.player?.pulse_cd_ticks ?? 0,
+    charmTicks: scenario?.player?.charm_ticks ?? 0,
+    respawnTicks: 0,
+    launched: false,
+    launchVel: [0, 0]
   };
 
-  let maxShadeNum = shades.length;
-  for (const s of shades) {
-    const match = /^S(\d+)$/.exec(s.id);
-    if (match) {
-      maxShadeNum = Math.max(maxShadeNum, Number(match[1]));
-    }
-  }
+  const durationS = scenario?.time_left_s ?? tuning[map.durationKey];
+  const initialTimeLeftTicks = Math.round(durationS * TICK_RATE);
 
-  const initialTimeLeftS = scenario?.time_left_s ?? tuning.night1_duration_s;
+  const windEnabled = scenario?.wind_enabled !== undefined
+    ? scenario.wind_enabled
+    : map.hasWind;
 
   return {
+    night: map.night,
+    map,
     seed,
     tuning,
     rng,
     tick: 0,
     simTick: 0,
     state: 'playing',
+    endStateBeforePause: 'playing',
     endReason: null,
-    initialTimeLeftS,
-    timeLeftS: initialTimeLeftS,
+    initialTimeLeftS: durationS,
+    timeLeftTicks: initialTimeLeftTicks,
+    timeLeftS: durationS,
     score: 0,
     player,
     lanterns,
     motes,
     shades,
+    drifters,
+    charms,
+    randomMotes,
     randomShades,
-    nextShadeIndex: maxShadeNum + 1,
+    randomDrifters,
+    windEnabled,
+    wind: {
+      active: false,
+      warning: false,
+      dirDeg: 0,
+      dirVec: [1, 0],
+      ticksLeft: 0
+    },
+    nextMoteIndex: maxNumericId(motes, 'M') + 1,
+    nextShadeIndex: maxNumericId(shades, 'S') + 1,
+    nextDrifterIndex: maxNumericId(drifters, 'D') + 1,
     prevInput: {
       move: [0, 0],
       cam_yaw_deg: 0,
       jump: false,
       interact: false,
       pulse: false,
-      dash: false
+      dash: false,
+      pause: false
     }
   };
 }
 
 /**
- * Serialize current simulation state into a Test Contract v1.0 snapshot record.
+ * Serialize current simulation state into a Test Contract v1.1 snapshot record.
  */
 export function serializeSnapshot(sim) {
+  const activeMotes = sim.motes.filter((m) => m.active);
+  const activeDrifters = sim.drifters.filter((d) => d.state !== 'removed');
   return {
     type: 'snapshot',
     tick: sim.tick,
     sim_tick: sim.simTick,
+    night: sim.night,
     state: sim.state,
     time_left_s: round3(sim.timeLeftS),
     score: sim.score,
+    wind: {
+      active: sim.wind.active,
+      dir_deg: round3(sim.wind.dirDeg)
+    },
     player: {
       pos: roundPos(sim.player.pos),
+      vel: roundPos(sim.player.vel),
+      grounded: sim.player.grounded,
       flames: sim.player.flames,
-      carried: sim.player.carried
+      carried: sim.player.carried,
+      invuln: sim.player.invulnTicks > 0,
+      dash_cd_s: round3(sim.player.dashCdTicks * SIM_DT),
+      pulse_cd_s: round3(sim.player.pulseCdTicks * SIM_DT),
+      charm_s: round3(sim.player.charmTicks * SIM_DT)
     },
     lanterns: sim.lanterns.map((l) => ({
       id: l.id,
@@ -174,24 +274,36 @@ export function serializeSnapshot(sim) {
       pos: roundPos(s.pos),
       state: s.state
     })),
-    motes_active: sim.motes.reduce((acc, m) => acc + (m.active ? 1 : 0), 0),
-    motes: sim.motes
-      .filter((m) => m.active)
-      .map((m) => ({
-        id: m.id,
-        pos: roundPos(m.pos)
-      }))
+    drifters: activeDrifters.map((d) => ({
+      id: d.id,
+      pos: roundPos(d.pos),
+      state: d.state,
+      stolen: d.stolen
+    })),
+    charms: sim.charms.map((c) => ({
+      id: c.id,
+      available: c.available,
+      respawn_s: round3(c.respawnTicks * SIM_DT)
+    })),
+    motes_active: activeMotes.length,
+    motes: activeMotes.map((m) => ({
+      id: m.id,
+      pos: roundPos(m.pos),
+      kind: m.kind,
+      ttl_s: m.ttlTicks === null ? null : round3(m.ttlTicks * SIM_DT)
+    }))
   };
 }
 
 /**
- * Serialize the final end record according to Test Contract v1.0.
+ * Serialize the final end record according to Test Contract v1.1.
  */
 export function serializeEnd(sim) {
+  const endState = sim.state === 'paused' ? 'playing' : sim.state;
   return {
     type: 'end',
     ticks: sim.tick,
-    state: sim.state,
+    state: endState,
     score: sim.score
   };
 }

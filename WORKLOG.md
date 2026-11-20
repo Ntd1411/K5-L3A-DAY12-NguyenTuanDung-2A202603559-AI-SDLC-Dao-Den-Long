@@ -1,5 +1,71 @@
 # Nhật ký lab
 
+## Nâng cấp mỹ thuật WebGL
+
+### 20/11/2026 · Nhân vật và quần thể đảo (bắt đầu 17:08 ICT)
+
+- **Phạm vi** — Chỉ thay đổi lớp hiển thị Three.js. Giữ nguyên mô phỏng, va chạm, tọa độ contract, camera, HUD và cách tính điểm.
+- **Hướng mỹ thuật** — Low-poly truyện cổ tích Việt Nam, silhouette rõ. Làm lại Mây, Bóng Mực và Gió Lạc; thêm tầng đất-đá cho đảo, cỏ, đá, cây có biến thể, biển mây bao quanh và ánh sáng vàng ấm từ đèn.
+- **Ngân sách hiệu năng** — Không thêm texture ngoài hay post-processing. Dùng geometry low-poly, material dùng chung và `InstancedMesh` cho cỏ, đá, tán cây và mây; chỉ vật thể chính đổ bóng. Chế độ Nhẹ tắt bóng và chi tiết phụ.
+- **Tiêu chí nghiệm thu** — Ba đêm vẫn khớp map gameplay; nhân vật, cây/cỏ/đá, đảo, mây và ánh đèn đều nhìn rõ từ camera chơi; không có lỗi console/WebGL; `npm test` và `npm run build` đạt; bản Chuẩn 1280×720 giữ tối thiểu 30 FPS trên máy mục tiêu.
+- **Cách xác minh** — Chạy test/build hồi quy, playtest Chrome từng đêm, kiểm tra console, chụp ảnh so sánh và đo FPS sau thời gian ổn định. Ghi lại lệnh, số đo và bằng chứng khi hoàn tất.
+- **Hoàn thành lúc 17:18 ICT** — Mây có thêm tay/chân, tóc, mắt, vành nón, khăn bay và đèn cầm tay; Bóng Mực có đầu, sừng, tua và mắt; Gió Lạc có thân vải, mặt nạ và mắt sáng. Đèn lồng có bệ, khung, mái và quả chóp rõ hình.
+- **Môi trường** — Đảo có ba lớp cỏ/đất/đá thu nhỏ dần xuống dưới, viền cát, cỏ và đá rải theo seed; cây chuyển sang tán low-poly hai cụm; 120 khối cầu instance ghép thành biển mây quanh đảo. Hai `PointLight` dùng lại cho các đèn đã sáng gần Mây, giữ chi phí cố định; Chế độ Nhẹ ẩn cỏ/đá phụ và tắt đèn động.
+- **Hồi quy** — `npm test` đạt **19/19** khi chạy ngoài sandbox (ca CLI cần `spawnSync`); `npm run build` đạt trong `2.35s`. Vite còn cảnh báo chunk JS `583.00 kB`, không phải lỗi build.
+- **Playtest và hiệu năng** — Chrome WebGL 2, `ANGLE (Intel, Mesa Intel UHD Graphics 620, OpenGL ES 3.2)`, 1280×720, bản Chuẩn, 0 lỗi console. Đêm 1–3 dùng `34–60` draw call, `3` texture và khoảng `10.5–11.0k` tam giác khi khởi tạo. Benchmark Đêm 3 trong `60.014s`, có `10` Bóng Mực, đạt **59.4 FPS** trung bình và **p95 16.8 ms** (`3563` mẫu).
+- **Bằng chứng** — [Đêm 1](docs/proof/visual-upgrade/night-1.png), [Đêm 2](docs/proof/visual-upgrade/night-2.png), [Đêm 3](docs/proof/visual-upgrade/night-3.png) và [benchmark có Bóng Mực](docs/proof/visual-upgrade/night-3-perf.png).
+- **AI và retro** — Lần chụp đầu phát hiện mặt cỏ trùng cao độ mặt đất gây z-fighting và mây dodecahedron trông giống đá nổi. Đã nâng mặt cỏ/viền cát và đổi mây thành cụm cầu bán trong suốt, sau đó chụp lại cả ba đêm. Token/chi phí không có số liệu từ harness.
+
+## Phase 2 · Ticket-02 "Ba hòn đảo" (Contract v1.1)
+
+### 20/11/2026 · Kế hoạch, giả định và tiêu chí nghiệm thu Phase 2
+
+- **Giờ làm (ICT, UTC+7)** — Bắt đầu 16:18.
+- **Mục tiêu** — Chuẩn hóa Đêm 1 theo Test Contract v1.1, bổ sung Đêm 2 (Đảo Cau) và Đêm 3 (Đảo Chuông), hoàn thiện cơ chế (lướt, rơi/hồi sinh, Bóng Mực `spawning/wander/chase/recoil/stunned`, Gió Lạc, Bùa Gió, gió mạnh, vùng an toàn đẩy dần, Tỏa Sáng 3D), nối chuỗi 3 Đêm trên web cùng HUD/menu/pause/cài đặt/âm thanh/bảng màu chuẩn.
+- **Giả định & quy ước chốt (trước khi sửa mã)**:
+  - **Pause & `tick` vs `sim_tick`**: Đọc input theo `tick` kể cả khi pause (`tick` tăng mỗi bước, `sim_tick` và mọi bộ đếm gameplay đứng yên khi pause). Nếu kết thúc CLI giữa lúc đang pause, `end.state` giữ thuộc bộ giá trị `{playing, won, lost}` (dùng `playing` nếu chưa thắng/thua), trong khi snapshot ghi `state: "paused"`. Lệnh `resumed` tiếp tục mô phỏng ngay trong bước đó.
+  - **Snapshot tick 0 & `night_start`**: Ghi snapshot tick 0 sau khi dựng scenario; sự kiện `night_start {night}` phát tại tick 0 (hoặc bước đầu tiên) — cụ thể, để giữ đúng bất biến của `verify-headless.py` ("The first record must be the tick-0 snapshot"), `serializeSnapshot(sim)` là dòng đầu tiên tại tick 0, và `night_start` được ghi ngay sau snapshot tick 0 (cùng `tick: 0`) khi chạy headless hoặc khi bắt đầu đêm.
+  - **Hậu tố `_s` & boolean**: `player.invuln` là boolean (`invulnTicks > 0`), các trường `dash_cd_s`, `pulse_cd_s`, `charm_s`, `ttl_s`, `respawn_s` xuất theo giây làm tròn 3 chữ số thập phân (`ticks / 60`). Với đom đóm thường (`kind: "random"`), `ttl_s` đặt là `null`.
+  - **Gió Lạc (Drifter)**: Sinh tại các điểm sương (bộ điểm sinh Bóng Mực chuẩn của Đêm 2/3) theo `rng`, cách Mây nếu cần hoặc ngẫu nhiên trên tập điểm. Thực thể sinh ở bước hiện tại xuất hiện trong snapshot của bước đó và bắt đầu tương tác từ tick kế tiếp (`spawnedThisTick`).
+  - **Rơi & hồi sinh**: Khi `player.pos[1] < -10` (mỗi lần rơi chỉ trừ 1 lửa, bỏ qua bất tử), nếu còn lửa thì vào trạng thái chờ `respawnTicks = 60` (vị trí giữ dưới -10 hoặc ẩn, không nhặt đom đóm/bùa, không bị chạm), hết 60 tick hồi sinh về điểm xuất phát với vận tốc 0 và `invulnTicks = 90`.
+  - **Điểm chuẩn hóa v1.1**: `+10` mỗi đom đóm nạp vào đèn, `+100` mỗi đèn thắp, `+5` mỗi Bóng Mực trúng Tỏa Sáng (mỗi con mỗi lần, kể cả đang choáng), `+ floor(giây còn lại) * 2 + 50 * lửa còn` khi thắng.
+  - **Tương thích ngược Phase 1**: Mốc hồi quy Phase 1 nằm ở commit `f3973e2`. Khi chuyển sang Contract v1.1, các hằng số Đêm 1 thay đổi theo Ticket-02 (`player_speed` 7→6, `carry_capacity` 8→10, `lantern_cost` 5→10, `island_radius` 36→40, `night1_duration_s` 180→300, điểm nạp thay vì điểm nhặt, v.v.). Các test Phase 1 được cập nhật/viết lại theo số chuẩn v1.1 kèm lý do rõ ràng.
+- **Tiêu chí nghiệm thu theo mốc**:
+  - **Mốc A**: `game.contract.json` lên `1.1`, CLI hỗ trợ `--night 1|2|3`, mã thoát `2` khi sai định dạng, `snapshot` và `scenario` validation đủ trường v1.1, dữ liệu Đêm 1 chuẩn, `npm test` & `verify-headless.py` (tất định 2 lần chạy) đạt.
+  - **Mốc B**: Test unit & fixture headless xác nhận lướt (`dash`), rơi/hồi sinh, sinh đom đóm 240 tick (trần 30), điểm v1.1, Bóng Mực 5 trạng thái + lịch sinh + recoil + đẩy khỏi vùng an toàn tối đa 30 tick, Tỏa Sáng 3D + đẩy 15 tick, pause/resume, 3 kết thúc.
+  - **Mốc C**: `--night 2` và `--night 3` chạy độc lập, test hình học cầu/bục phóng/dốc/tầng/tháp chuông, Gió Lạc, Bùa Gió, gió mạnh (báo trước 120 tick, đẩy 300 tick mỗi 1800 tick, `wind_enabled: false`).
+  - **Mốc D**: Trình duyệt chơi trọn 3 đêm -> Bình Minh, thua chơi lại đúng đêm giữ tổng điểm các đêm đã thắng, Pause (`Esc`/`P`), Settings lưu `localStorage`, Web Audio SFX + nhạc nền, HUD đầy đủ theo bảng màu chuẩn.
+  - **Mốc E**: `npm ci`, `npm test`, `npm run build` sạch; đo headless Đêm 3 21.600 tick `<= 30s`; đo bản Chuẩn `1280x720` đạt `>= 30 FPS` trung bình; cập nhật `README.md`, `AGENTS.md`, lưu bằng chứng vào `docs/proof/phase-2/`.
+
+### 20/11/2026 · Nghiệm thu & Bằng chứng Phase 2 (16:18–16:30 ICT)
+
+- **Lệnh kiểm chứng & Kết quả**:
+  - `npm test`: **Đạt (16/16 test)** ([sim-m1-m2.test.js](tests/sim-m1-m2.test.js), [sim-m3-night1.test.js](tests/sim-m3-night1.test.js), [sim-phase2-mechanics.test.js](tests/sim-phase2-mechanics.test.js), [sim-maps-night2-3.test.js](tests/sim-maps-night2-3.test.js), [web-input.test.js](tests/web-input.test.js)).
+  - `npm run build`: **Đạt** (`dist/` build trong `1.33s`).
+  - `scripts/verify-headless.py` (tất định 2 lần chạy giống hệt từng byte):
+    - [smoke.jsonl](docs/proof/phase-2/smoke.jsonl) (`--night 1 --ticks 1`)
+    - [night1-dash-pause.jsonl](docs/proof/phase-2/night1-dash-pause.jsonl) (`--night 1 --ticks 120`)
+    - [night2-bridge-drifter.jsonl](docs/proof/phase-2/night2-bridge-drifter.jsonl) (`--night 2 --ticks 180`)
+    - [night3-full-21600.jsonl](docs/proof/phase-2/night3-full-21600.jsonl) (`--night 3 --ticks 21600 --snapshot-every 600`, `end.ticks = 21600`)
+  - **Đo hiệu năng headless Đêm 3 (21.600 tick)**: `time -p node scripts/headless.js --night 3 --seed 42 --ticks 21600 --snapshot-every 600 --scenario tests/fixtures/p2-night3-dawn-scenario.json --out /tmp/bench-21600.jsonl` → **`real 0.38s`** (`<= 30s`).
+  - **Playtest & Hiệu năng trình duyệt 1280×720 (Chế độ Chuẩn, `lightMode=false`)**:
+    - Trình duyệt: `Chrome 157` (`WebGL 2`, 0 lỗi console) trên `Linux x86_64`.
+    - Tối ưu GPU cho bản Chuẩn ([src/web/render/app.js](src/web/render/app.js), [src/web/render/world.js](src/web/render/world.js)): chuyển vật liệu sang `MeshLambertMaterial`, bỏ 7 `PointLight` dư trên từng đèn lồng (giữ `hemiLight`, `moonLight` `PCFShadowMap 512×512`, `playerLight` và vòng phát sáng `CanvasTexture`), khóa `pixelRatio = 1` ở `1280×720`.
+    - Kết quả đo trên Đêm 3 (sau 5 giây ổn định, `shades = 9`): `samples = 3661`, `durationSec = 66.4 s`, **`55.1 FPS` trung bình**, **`p95 = 33.3 ms`** (`>= 30 FPS`).
+    - Đã kiểm tra `P → Tiếp tục → P → Tiếp tục` (`paused` → `playing` và `sim_tick` tăng bình thường), kiểm tra `localStorage['dao-den-long-settings']` sau reload: `{"volume":0.5,"sensitivity":1.5,"lightMode":false}`.
+    - Ảnh chụp bằng chứng: [01-menu.png](docs/proof/phase-2/01-menu.png), [02-night1-hud.png](docs/proof/phase-2/02-night1-hud.png), [03-pause.png](docs/proof/phase-2/03-pause.png), [04-night2-bridge.png](docs/proof/phase-2/04-night2-bridge.png), [05-night3-belltower.png](docs/proof/phase-2/05-night3-belltower.png).
+- **Sửa 4 lỗi phát hiện khi kiểm tra độc lập (16:34–16:40 ICT)**:
+  1. **Nút Tiếp tục ([src/web/main.js](src/web/main.js))**: Xóa trạng thái `prevInput.pause` bị kẹt sau lần nhấn `P` để `togglePause()` luôn kích hoạt cạnh lên `false → true` khi bấm **Tiếp tục**.
+  2. **Tỏa Sáng 3D ([src/sim/step.js](src/sim/step.js))**: Dùng trực tiếp `shade.pos` / `drifter.pos` làm tâm mục tiêu (thay vì cộng thêm `0.8` m), bảo đảm mục tiêu ngoài `5.0` m (ví dụ `5.054` m) không bị choáng.
+  3. **Lướt 12 tick & giật lùi 60 tick ([src/sim/step.js](src/sim/step.js))**: Giữ `isDashingThisTick` trước khi giảm `dashTicks` để đủ 12 tick giữ độ cao; chuyển bước kiểm tra hết `stateTicksLeft` xuống cuối bước di chuyển kẻ địch để Bóng Mực `recoil` đủ 60 bước (`2.0` m).
+  4. **Tổng điểm không cộng trùng ([src/web/main.js](src/web/main.js))**: Lưu điểm thắng theo từng Đêm (`nightScores[1..3]`) và reset `nightScores[night]` khi chơi lại Đêm đó.
+  - Đã thêm 3 ca test hồi quy biên vào [tests/sim-phase2-mechanics.test.js](tests/sim-phase2-mechanics.test.js) (`npm test`: **19/19 đạt**, `npm run build` & `verify-headless.py` đạt).
+- **AI và retro**:
+  - Khi đo 21.600 tick Đêm 3 lần đầu, `p2-night3-dawn-scenario.json` bị gió đẩy rơi khỏi tầng 2 tại tick `5618` nên không chạy đủ 21.600 tick; đã tắt gió trong fixture đo (`wind_enabled: false`) và xác nhận `end.ticks === 21600`.
+  - Việc tách `src/sim/maps.js` dùng chung cho mô phỏng và dựng cảnh Three.js giúp tọa độ cầu tre, bục phóng, dốc 30°/150° và tháp chuông khớp 100% giữa headless và web. Token/chi phí chưa có số liệu từ harness.
+
+---
+
 ## Phase 1 · PRD-0
 
 ### 20/11/2026 · Chuẩn bị harness

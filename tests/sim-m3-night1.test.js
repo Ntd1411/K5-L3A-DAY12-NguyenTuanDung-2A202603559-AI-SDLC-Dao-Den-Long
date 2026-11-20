@@ -2,289 +2,188 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import {
-  createSimulationState,
-  distXZ,
-  stepSimulation
-} from '../src/sim/index.js';
+import { createSimulationState, stepSimulation } from '../src/sim/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const contract = JSON.parse(
   fs.readFileSync(path.join(ROOT, 'game.contract.json'), 'utf8')
 );
-const tuning = contract.tuning;
 
-test('pulse stuns and pushes shades, respects cost and cooldown', () => {
+test('pulse (3 motes, 5m 3D, 120t stun, 4m/15t push, 180t cd, +5 score)', () => {
   const sim = createSimulationState({
-    seed: 10,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: {
-      player: { pos: [0, 0, 0], carried: 1 },
-      shades: [{ id: 'S1', pos: [0, 0, 3] }],
+      player: { pos: [0, 0, 0], carried: 3 },
+      shades: [
+        { id: 'S1', pos: [0, 0, 4.5], state: 'chase' },
+        { id: 'S2', pos: [0, 0, 7.5], state: 'chase' }
+      ],
       random_motes: false,
       random_shades: false
     }
   });
 
-  // Insufficient light (carried 1 < pulse_cost 2)
-  const eFail = stepSimulation(sim, { pulse: true });
-  assert.equal(eFail.some((e) => e.name === 'pulse'), false);
-  assert.equal(sim.player.carried, 1);
-
-  stepSimulation(sim, { pulse: false });
-  sim.player.carried = 4;
-  const distBeforePulse = distXZ(sim.player.pos, sim.shades[0].pos);
-
-  const ePulse = stepSimulation(sim, { pulse: true });
-  const pulseEvent = ePulse.find((e) => e.name === 'pulse');
-  assert.ok(pulseEvent);
-  assert.deepEqual(pulseEvent.data.stunned_ids, ['S1']);
-  assert.equal(sim.player.carried, 2);
-  assert.equal(sim.score, tuning.score.per_stun);
+  const ev1 = stepSimulation(sim, { pulse: true });
+  const pulseEv = ev1.find((e) => e.name === 'pulse');
+  assert.ok(pulseEv);
+  assert.deepEqual(pulseEv.data.stunned_ids, ['S1']);
+  assert.equal(sim.player.carried, 0);
+  assert.equal(sim.score, 5);
   assert.equal(sim.shades[0].state, 'stunned');
-  assert.ok(
-    distXZ(sim.player.pos, sim.shades[0].pos) >=
-      distBeforePulse + tuning.pulse_push_m - 1e-4
-  );
+  assert.equal(sim.shades[1].state, 'chase');
 
-  // Cooldown blocks immediate second pulse
-  stepSimulation(sim, { pulse: false });
-  const eCd = stepSimulation(sim, { pulse: true });
-  assert.equal(eCd.some((e) => e.name === 'pulse'), false);
-
-  // After stun duration, shade returns to chase
-  const stunTicks = Math.ceil(tuning.pulse_stun_s * 60) + 2;
-  for (let i = 0; i < stunTicks; i += 1) {
+  // After 14 more ticks, full 4.0m push is applied
+  for (let i = 0; i < 14; i += 1) {
     stepSimulation(sim, { pulse: false });
   }
-  assert.equal(sim.shades[0].state, 'chase');
+  assert.ok(sim.shades[0].pos[2] >= 8.49 && sim.shades[0].pos[2] <= 8.51, `z=${sim.shades[0].pos[2]}`);
+
+  // Cooldown blocks pulse even with 3 motes
+  sim.player.carried = 3;
+  const evCd = stepSimulation(sim, { pulse: true });
+  assert.equal(evCd.some((e) => e.name === 'pulse'), false);
 });
 
-test('player_hit reduces flames and grants invulnerability window', () => {
+test('player_hit drops floor(carried/2) motes in 1.5-2.5m ring, sets 90t invuln and shade recoil', () => {
   const sim = createSimulationState({
-    seed: 10,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 0], flames: 3, carried: 5 },
-      shades: [{ id: 'S1', pos: [0, 0, 0.5] }],
-      random_motes: false,
-      random_shades: false
-    }
-  });
-
-  const e1 = stepSimulation(sim, {});
-  const hit1 = e1.find((e) => e.name === 'player_hit');
-  assert.ok(hit1);
-  assert.deepEqual(hit1.data, { by: 'shade', flames: 2, dropped: 0 });
-  assert.equal(sim.player.carried, 5);
-
-  // Next 30 ticks within invuln_s (1.5s = 90 ticks) must not hit again
-  for (let i = 0; i < 30; i += 1) {
-    const ev = stepSimulation(sim, {});
-    assert.equal(ev.some((e) => e.name === 'player_hit'), false);
-  }
-  assert.equal(sim.player.flames, 2);
-});
-
-test('shades respect safe_radius around lit lanterns', () => {
-  const sim = createSimulationState({
-    seed: 10,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 14] },
-      lanterns: [{ id: 'L1', pos: [0, 0, 14], lit: true }],
-      shades: [{ id: 'S1', pos: [0, 0, 14 + tuning.safe_radius + 0.5] }],
-      random_motes: false,
-      random_shades: false
-    }
-  });
-
-  for (let i = 0; i < 60; i += 1) {
-    stepSimulation(sim, {});
-    assert.ok(
-      distXZ(sim.shades[0].pos, sim.lanterns[0].pos) >= tuning.safe_radius - 1e-6
-    );
-  }
-});
-
-test('endings: all_lit, no_flames, dawn, and simultaneous priority', () => {
-  // 1. all_lit with remaining time & flames bonus
-  const simWin = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 14], carried: 1, flames: 2 },
-      lanterns: [
-        { id: 'L1', deposited: 4, lit: false },
-        { id: 'L2', lit: true },
-        { id: 'L3', lit: true },
-        { id: 'L4', lit: true },
-        { id: 'L5', lit: true }
-      ],
-      time_left_s: 100,
-      random_motes: false,
-      random_shades: false
-    }
-  });
-  const eWin = stepSimulation(simWin, { interact: true });
-  const overWin = eWin.find((e) => e.name === 'game_over');
-  assert.deepEqual(overWin.data, { result: 'won', reason: 'all_lit' });
-  assert.equal(simWin.state, 'won');
-  const expectedBonus =
-    Math.floor(simWin.timeLeftS) * tuning.score.per_second_left +
-    2 * tuning.score.per_flame_left;
-  assert.equal(simWin.score, tuning.score.per_lantern + expectedBonus);
-  // Stepping after game_over does nothing
-  assert.deepEqual(stepSimulation(simWin, {}), []);
-
-  // 2. no_flames
-  const simNoFlames = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 0], flames: 1 },
-      shades: [{ id: 'S1', pos: [0, 0, 0.2] }],
-      random_motes: false,
-      random_shades: false
-    }
-  });
-  const eLoss = stepSimulation(simNoFlames, {});
-  const overLoss = eLoss.find((e) => e.name === 'game_over');
-  assert.deepEqual(overLoss.data, { result: 'lost', reason: 'no_flames' });
-
-  // 3. dawn
-  const simDawn = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: {
-      time_left_s: 1 / 60,
-      random_motes: false,
-      random_shades: false
-    }
-  });
-  const eDawn = stepSimulation(simDawn, {});
-  assert.deepEqual(eDawn.find((e) => e.name === 'game_over').data, {
-    result: 'lost',
-    reason: 'dawn'
-  });
-
-  // 4. Simultaneous priority: all_lit beats no_flames and dawn
-  const simPriority = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 14], carried: 1, flames: 1 },
-      lanterns: [
-        { id: 'L1', deposited: 4, lit: false },
-        { id: 'L2', lit: true },
-        { id: 'L3', lit: true },
-        { id: 'L4', lit: true },
-        { id: 'L5', lit: true }
-      ],
-      shades: [{ id: 'S1', pos: [0, 0, 14.1] }],
-      time_left_s: 1 / 60,
-      random_motes: false,
-      random_shades: false
-    }
-  });
-  const ePrio = stepSimulation(simPriority, { interact: true });
-  assert.deepEqual(ePrio.find((e) => e.name === 'game_over').data, {
-    result: 'won',
-    reason: 'all_lit'
-  });
-});
-
-test('CLI exits with code 2 on malformed scenario JSON', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dao-den-long-m3-'));
-  const badScenario = path.join(tmpDir, 'bad-scenario.json');
-  fs.writeFileSync(badScenario, '{ not valid json');
-
-  const res = spawnSync(
-    'node',
-    [
-      'scripts/headless.js',
-      '--seed',
-      '42',
-      '--night',
-      '1',
-      '--ticks',
-      '10',
-      '--scenario',
-      badScenario,
-      '--out',
-      path.join(tmpDir, 'out.jsonl')
-    ],
-    { cwd: ROOT, encoding: 'utf8' }
-  );
-  assert.equal(res.status, 2);
-  assert.ok(res.stderr.length > 0);
-});
-
-test('player inside safe_radius (4.9m) is protected from edge hits and overlapping safe zones', () => {
-  // Mây at 4.9m from lit L1 (safe_radius = 5.0m), shade right outside 5.0m
-  const simEdge = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 14 + 4.9], flames: 3 },
-      lanterns: [{ id: 'L1', pos: [0, 0, 14], lit: true }],
-      shades: [{ id: 'S1', pos: [0, 0, 14 + 5.05] }],
-      random_motes: false,
-      random_shades: false
-    }
-  });
-  for (let i = 0; i < 30; i += 1) {
-    const ev = stepSimulation(simEdge, {});
-    assert.equal(ev.some((e) => e.name === 'player_hit'), false);
-  }
-  assert.equal(simEdge.player.flames, 3);
-
-  // Overlapping lit lanterns L1 (-4, 0, 0) and L2 (4, 0, 0) (8m apart, safe_radius = 5.0m)
-  // Shade placed at (1, 0, 0) (5m from L1, 3m from L2) must be >= 5.0m from BOTH at tick 1
-  const simOverlap = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: {
-      player: { pos: [0, 0, 10] },
-      lanterns: [
-        { id: 'L1', pos: [-4, 0, 0], lit: true },
-        { id: 'L2', pos: [4, 0, 0], lit: true }
-      ],
-      shades: [{ id: 'S1', pos: [1, 0, 0] }],
-      random_motes: false,
-      random_shades: false
-    }
-  });
-  stepSimulation(simOverlap, {});
-  const sPos = simOverlap.shades[0].pos;
-  assert.ok(distXZ(sPos, [-4, 0, 0]) >= tuning.safe_radius - 1e-6);
-  assert.ok(distXZ(sPos, [4, 0, 0]) >= tuning.safe_radius - 1e-6);
-});
-
-test('spawned shade IDs never collide with scenario.shades and default motes >= 40', () => {
-  const sim = createSimulationState({
+    night: 1,
     seed: 42,
-    tuning,
+    tuning: contract.tuning,
     scenario: {
-      player: { pos: [0, 0, 14] },
-      lanterns: [{ id: 'L1', pos: [0, 0, 14], lit: true }],
-      shades: [{ id: 'S2', pos: [0, 0, -25] }],
-      random_shades: true
+      player: { pos: [0, 0, 0], carried: 5, flames: 3 },
+      shades: [{ id: 'S1', pos: [0, 0, 0.5], state: 'chase' }],
+      random_motes: false,
+      random_shades: false
     }
   });
-  assert.equal(sim.motes.length, 40);
 
-  let spawnedId = null;
-  for (let i = 0; i < 1800; i += 1) {
-    const evs = stepSimulation(sim, {});
-    const sp = evs.find((e) => e.name === 'shade_spawned');
-    if (sp) spawnedId = sp.data.id;
+  const ev = stepSimulation(sim, { move: [0, 0] });
+  const hit = ev.find((e) => e.name === 'player_hit');
+  assert.ok(hit);
+  assert.deepEqual(hit.data, { by: 'shade', flames: 2, dropped: 2 });
+  assert.equal(sim.player.carried, 3);
+  assert.equal(sim.shades[0].state, 'recoil');
+
+  const droppedMotes = sim.motes.filter((m) => m.kind === 'dropped' && m.active);
+  assert.equal(droppedMotes.length, 2);
+  for (const m of droppedMotes) {
+    const d = Math.hypot(m.pos[0], m.pos[2]);
+    assert.ok(d >= 1.49 && d <= 2.51, `dropped ring dist=${d}`);
   }
-  assert.equal(spawnedId, 'S3');
-  const ids = sim.shades.map((s) => s.id);
-  assert.equal(new Set(ids).size, ids.length);
+
+  // Invuln protects on next tick
+  const ev2 = stepSimulation(sim, { move: [0, 0] });
+  assert.equal(ev2.some((e) => e.name === 'player_hit'), false);
+});
+
+test('shades respect safe_radius (6m) and player inside safe zone is protected', () => {
+  const sim = createSimulationState({
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
+    scenario: {
+      player: { pos: [0, 0, 29.9], flames: 3 },
+      lanterns: [{ id: 'L1', pos: [0, 0, 25], lit: true }],
+      shades: [{ id: 'S1', pos: [0, 0, 31.1], state: 'chase' }],
+      random_motes: false,
+      random_shades: false
+    }
+  });
+
+  for (let i = 0; i < 30; i += 1) {
+    const ev = stepSimulation(sim, { move: [0, 0] });
+    assert.equal(ev.some((e) => e.name === 'player_hit'), false);
+    const d = Math.hypot(sim.shades[0].pos[0] - 0, sim.shades[0].pos[2] - 25);
+    assert.ok(d >= 5.99, `shade dist from L1=${d}`);
+  }
+});
+
+test('endings: no_flames > all_lit > dawn priority', () => {
+  // Simultaneous no_flames + all_lit -> no_flames wins in v1.1
+  const simBoth = createSimulationState({
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
+    scenario: {
+      player: { pos: [0, 0, 0], flames: 0 },
+      lanterns: [
+        { id: 'L1', lit: true },
+        { id: 'L2', lit: true },
+        { id: 'L3', lit: true },
+        { id: 'L4', lit: true },
+        { id: 'L5', lit: true }
+      ],
+      random_motes: false,
+      random_shades: false
+    }
+  });
+  const evBoth = stepSimulation(simBoth, {});
+  assert.equal(simBoth.state, 'lost');
+  assert.equal(evBoth.find((e) => e.name === 'game_over').data.reason, 'no_flames');
+
+  // Simultaneous all_lit + dawn (last tick) -> all_lit wins
+  const simLastTick = createSimulationState({
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
+    scenario: {
+      player: { pos: [0, 0, 24.5], carried: 1, flames: 2 },
+      lanterns: [
+        { id: 'L1', deposited: 9, lit: false },
+        { id: 'L2', lit: true },
+        { id: 'L3', lit: true },
+        { id: 'L4', lit: true },
+        { id: 'L5', lit: true }
+      ],
+      time_left_s: 1 / 60,
+      random_motes: false,
+      random_shades: false
+    }
+  });
+  const evWin = stepSimulation(simLastTick, { interact: true });
+  assert.equal(simLastTick.state, 'won');
+  assert.equal(evWin.find((e) => e.name === 'game_over').data.reason, 'all_lit');
+  // Score: 10 (deposit) + 100 (lantern) + 0*2 (time) + 2*50 (flames) = 210
+  assert.equal(simLastTick.score, 210);
+
+  // Dawn loss
+  const simDawn = createSimulationState({
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
+    scenario: {
+      time_left_s: 1 / 60,
+      random_motes: false,
+      random_shades: false
+    }
+  });
+  const evDawn = stepSimulation(simDawn, {});
+  assert.equal(simDawn.state, 'lost');
+  assert.equal(evDawn.find((e) => e.name === 'game_over').data.reason, 'dawn');
+});
+
+test('CLI exits with code 2 on malformed scenario JSON and default motes = 20', () => {
+  const badScenarioPath = path.join('/tmp', 'bad-scenario-v11.json');
+  const outPath = path.join('/tmp', 'bad-scenario-out.jsonl');
+  fs.writeFileSync(badScenarioPath, '{"shades":[{"pos":[0,0,0],"state":"invalid_state"}]}', 'utf8');
+  let exitCode = 0;
+  try {
+    execFileSync(
+      'node',
+      ['scripts/headless.js', '--ticks', '5', '--scenario', badScenarioPath, '--out', outPath],
+      { cwd: ROOT, stdio: 'pipe' }
+    );
+  } catch (err) {
+    exitCode = err.status;
+  }
+  assert.equal(exitCode, 2);
+
+  const sim = createSimulationState({ night: 1, seed: 42, tuning: contract.tuning });
+  assert.equal(sim.motes.length, 20);
+  assert.equal(sim.shades.length, 0);
 });

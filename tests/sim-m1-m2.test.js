@@ -2,14 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  ISLAND_RADIUS,
   createSimulationState,
-  distXZ,
-  serializeSnapshot,
   stepSimulation
 } from '../src/sim/index.js';
 
@@ -18,209 +14,198 @@ const ROOT = path.resolve(__dirname, '..');
 const contract = JSON.parse(
   fs.readFileSync(path.join(ROOT, 'game.contract.json'), 'utf8')
 );
-const tuning = contract.tuning;
 
-test('movement straight, normalized diagonal, 90deg camera yaw, and island clamp', () => {
+test('movement straight, normalized diagonal, 90deg camera yaw, and island fall at R40', () => {
   const sim = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: { random_motes: false, random_shades: false }
   });
 
-  // Straight +Z for 60 ticks (1s) at cam_yaw_deg = 0
+  // Accelerate to full 6.0 m/s over 6 ticks, then run 54 more ticks = ~5.7m
   for (let i = 0; i < 60; i += 1) {
     stepSimulation(sim, { move: [0, 1], cam_yaw_deg: 0 });
   }
-  assert.ok(Math.abs(sim.player.pos[0]) < 1e-6);
-  assert.ok(Math.abs(sim.player.pos[2] - tuning.player_speed) < 1e-4);
+  assert.ok(sim.player.pos[2] > 5.4 && sim.player.pos[2] <= 6.01, `z=${sim.player.pos[2]}`);
+  assert.equal(sim.player.pos[0], 0);
 
-  // Diagonal [1, 1] for 60 ticks should be normalized to player_speed
+  // Diagonal movement is normalized
   const simDiag = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: { random_motes: false, random_shades: false }
   });
   for (let i = 0; i < 60; i += 1) {
     stepSimulation(simDiag, { move: [1, 1], cam_yaw_deg: 0 });
   }
-  const distDiag = distXZ([0, 0, 0], simDiag.player.pos);
-  assert.ok(Math.abs(distDiag - tuning.player_speed) < 1e-4);
+  const distDiag = Math.hypot(simDiag.player.pos[0], simDiag.player.pos[2]);
+  assert.ok(distDiag > 5.4 && distDiag <= 6.01, `distDiag=${distDiag}`);
 
-  // Camera yaw 90 deg with move [0, 1] -> moves along +X
+  // 90deg camera yaw: forward input [0, 1] moves along +X
   const simYaw = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: { random_motes: false, random_shades: false }
   });
   for (let i = 0; i < 60; i += 1) {
     stepSimulation(simYaw, { move: [0, 1], cam_yaw_deg: 90 });
   }
-  assert.ok(Math.abs(simYaw.player.pos[0] - tuning.player_speed) < 1e-4);
+  assert.ok(simYaw.player.pos[0] > 5.4, `x=${simYaw.player.pos[0]}`);
   assert.ok(Math.abs(simYaw.player.pos[2]) < 1e-4);
 
-  // Island boundary clamp
+  // Walking past R=40 on Night 1 causes fall off island
   const simEdge = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: {
-      player: { pos: [0, 0, ISLAND_RADIUS - 0.1] },
+      player: { pos: [0, 0, 39.5], carried: 4, flames: 3 },
       random_motes: false,
       random_shades: false
     }
   });
-  for (let i = 0; i < 30; i += 1) {
-    stepSimulation(simEdge, { move: [0, 1], cam_yaw_deg: 0 });
+  let hitEvent = null;
+  for (let i = 0; i < 120; i += 1) {
+    const evs = stepSimulation(simEdge, { move: [0, 1], cam_yaw_deg: 0 });
+    const h = evs.find((e) => e.name === 'player_hit');
+    if (h) {
+      hitEvent = h;
+      break;
+    }
   }
-  assert.ok(distXZ([0, 0, 0], simEdge.player.pos) <= ISLAND_RADIUS + 1e-6);
+  assert.ok(hitEvent, 'expected fall player_hit past R40');
+  assert.equal(hitEvent.data.by, 'fall');
+  assert.equal(hitEvent.data.lost, 4);
+  assert.equal(simEdge.player.flames, 2);
 });
 
-test('jump rising edge and landing at y = 0', () => {
+test('jump rising edge (7 m/s, -20 m/s^2) and landing at y = 0', () => {
   const sim = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: { random_motes: false, random_shades: false }
   });
 
   stepSimulation(sim, { jump: true });
+  assert.equal(sim.player.grounded, false);
   assert.ok(sim.player.pos[1] > 0);
+
   let maxY = sim.player.pos[1];
-  // Hold jump: should not double jump
-  for (let i = 0; i < 90; i += 1) {
+  for (let i = 0; i < 60; i += 1) {
     stepSimulation(sim, { jump: true });
-    if (sim.player.pos[1] > maxY) maxY = sim.player.pos[1];
+    maxY = Math.max(maxY, sim.player.pos[1]);
   }
-  assert.ok(maxY > 1.0);
-  assert.equal(sim.player.pos[1], 0);
+  // Peak of 7 m/s with -20 m/s^2 is ~1.225 m
+  assert.ok(maxY > 1.1 && maxY < 1.3, `maxY=${maxY}`);
   assert.equal(sim.player.grounded, true);
+  assert.equal(sim.player.pos[1], 0);
 });
 
-test('mote pickup boundary and carry_capacity limit', () => {
-  const motes = [
-    [0, 0, tuning.pickup_radius], // exactly on boundary -> picked
-    [0, 0, tuning.pickup_radius + 0.05] // just outside -> not picked
-  ];
+test('mote pickup boundary (1.0m XZ, 1.5m Y) and carry_capacity limit (10)', () => {
+  const motes = [];
+  for (let i = 0; i < 12; i += 1) {
+    motes.push([0, 0, 0.5]);
+  }
+  motes.push([0, 0, 1.5]); // > 1.0m away
+  motes.push([0, 2.0, 0]); // > 1.5m height diff
+
   const sim = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: { motes, random_shades: false }
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
+    scenario: {
+      motes,
+      random_shades: false
+    }
   });
 
   const events = stepSimulation(sim, { move: [0, 0] });
-  assert.equal(sim.player.carried, 1);
-  assert.equal(sim.score, tuning.score.per_mote);
-  assert.equal(events.length, 1);
-  assert.equal(events[0].tick, 1);
-  assert.equal(events[0].name, 'mote_picked');
-  assert.equal(events[0].data.carried, 1);
-
-  // Carry capacity cap (8)
-  const manyMotes = Array.from({ length: 10 }, () => [0, 0, 0]);
-  const simFull = createSimulationState({
-    seed: 1,
-    tuning,
-    scenario: { motes: manyMotes, random_shades: false }
-  });
-  stepSimulation(simFull, {});
-  assert.equal(simFull.player.carried, tuning.carry_capacity);
-  assert.equal(simFull.motes.filter((m) => m.active).length, 2);
+  const pickedEvents = events.filter((e) => e.name === 'mote_picked');
+  assert.equal(pickedEvents.length, 10);
+  assert.equal(sim.player.carried, 10);
+  assert.equal(sim.score, 0, 'v1.1 grants score on deposit, not pickup');
+  assert.equal(sim.motes.filter((m) => m.active).length, 4);
 });
 
-test('partial deposit, lighting L1, holding E only triggers once, and ID tie-break', () => {
+test('partial deposit, lighting L1 (10 motes), holding E triggers once, and ID tie-break', () => {
   const sim = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: {
-      player: { pos: [0, 0, 13.5], carried: 2 },
-      lanterns: [{ id: 'L1', pos: [0, 0, 14], deposited: 0 }],
+      player: { pos: [0, 0, 24.0], carried: 6 },
       random_motes: false,
       random_shades: false
     }
   });
 
-  // First press E: deposits 2
-  const e1 = stepSimulation(sim, { interact: true });
+  // First interact deposits 6
+  const ev1 = stepSimulation(sim, { interact: true });
+  assert.ok(ev1.some((e) => e.name === 'deposit' && e.data.lantern_id === 'L1' && e.data.amount === 6));
   assert.equal(sim.player.carried, 0);
-  assert.equal(sim.lanterns[0].deposited, 2);
-  assert.equal(sim.lanterns[0].lit, false);
-  assert.equal(e1[0].name, 'deposit');
-  assert.deepEqual(e1[0].data, { lantern_id: 'L1', amount: 2, deposited: 2 });
+  assert.equal(sim.score, 60);
 
-  // Give 4 more motes via scenario-like state or pickup
+  // Holding E does not re-trigger
   sim.player.carried = 4;
-  // Still holding E=true -> should NOT deposit!
-  const eHeld = stepSimulation(sim, { interact: true });
-  assert.equal(eHeld.length, 0);
-  assert.equal(sim.player.carried, 4);
+  const evHold = stepSimulation(sim, { interact: true });
+  assert.equal(evHold.filter((e) => e.name === 'deposit').length, 0);
 
-  // Release E then press E again -> deposits 3 (needed = 5 - 2 = 3), lights L1
+  // Release E, then press E again to finish lighting L1
   stepSimulation(sim, { interact: false });
-  const e2 = stepSimulation(sim, { interact: true });
-  assert.equal(sim.player.carried, 1);
-  assert.equal(sim.lanterns[0].deposited, 5);
+  const ev2 = stepSimulation(sim, { interact: true });
+  assert.ok(ev2.some((e) => e.name === 'deposit' && e.data.amount === 4 && e.data.deposited === 10));
+  assert.ok(ev2.some((e) => e.name === 'lantern_lit' && e.data.lantern_id === 'L1'));
   assert.equal(sim.lanterns[0].lit, true);
-  assert.equal(sim.score, tuning.score.per_lantern);
-  assert.equal(e2.length, 2);
-  assert.equal(e2[0].name, 'deposit');
-  assert.deepEqual(e2[0].data, { lantern_id: 'L1', amount: 3, deposited: 5 });
-  assert.equal(e2[1].name, 'lantern_lit');
-  assert.deepEqual(e2[1].data, { lantern_id: 'L1' });
+  assert.equal(sim.score, 60 + 40 + 100);
 
-  // Tie-break by ID when equidistant
+  // Tie-break: L2 and L3 equidistant from player -> L2 wins
   const simTie = createSimulationState({
-    seed: 1,
-    tuning,
+    night: 1,
+    seed: 42,
+    tuning: contract.tuning,
     scenario: {
-      player: { pos: [0, 0, 0], carried: 1 },
+      player: { pos: [0, 0, 0], carried: 3 },
       lanterns: [
-        { id: 'L2', pos: [1, 0, 0], deposited: 0 },
-        { id: 'L1', pos: [-1, 0, 0], deposited: 0 }
+        { id: 'L2', pos: [1.5, 0, 0] },
+        { id: 'L3', pos: [-1.5, 0, 0] }
       ],
       random_motes: false,
       random_shades: false
     }
   });
-  const eTie = stepSimulation(simTie, { interact: true });
-  assert.equal(eTie[0].data.lantern_id, 'L1');
+  const evTie = stepSimulation(simTie, { interact: true });
+  assert.ok(evTie.some((e) => e.name === 'deposit' && e.data.lantern_id === 'L2'));
 });
 
 test('CLI handles --ticks 0 and exits with code 2 on malformed inputs', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dao-den-long-'));
-  const out0 = path.join(tmpDir, 't0.jsonl');
+  const outPath = path.join('/tmp', 'test-ticks0-v11.jsonl');
   execFileSync(
     'node',
-    ['scripts/headless.js', '--seed', '42', '--night', '1', '--ticks', '0', '--out', out0],
+    ['scripts/headless.js', '--night', '1', '--seed', '42', '--ticks', '0', '--out', outPath],
     { cwd: ROOT }
   );
-  const lines0 = fs.readFileSync(out0, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.equal(lines0.length, 2);
-  assert.equal(lines0[0].type, 'snapshot');
-  assert.equal(lines0[0].tick, 0);
-  assert.equal(lines0[1].type, 'end');
-  assert.equal(lines0[1].ticks, 0);
+  const lines = fs.readFileSync(outPath, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(lines[0].type, 'snapshot');
+  assert.equal(lines[0].night, 1);
+  assert.equal(lines[1].name, 'night_start');
+  assert.equal(lines[2].type, 'end');
+  assert.equal(lines[2].ticks, 0);
 
-  // Duplicate tick in inputs -> exit 2
-  const badInputs = path.join(tmpDir, 'bad-inputs.json');
-  fs.writeFileSync(
-    badInputs,
-    JSON.stringify({ frames: [{ tick: 1, move: [0, 1] }, { tick: 1, move: [0, 0] }] })
-  );
-  const res = spawnSync(
-    'node',
-    [
-      'scripts/headless.js',
-      '--seed',
-      '42',
-      '--night',
-      '1',
-      '--ticks',
-      '10',
-      '--inputs',
-      badInputs,
-      '--out',
-      path.join(tmpDir, 'never.jsonl')
-    ],
-    { cwd: ROOT, encoding: 'utf8' }
-  );
-  assert.equal(res.status, 2);
-  assert.ok(res.stderr.length > 0);
+  const badInputsPath = path.join('/tmp', 'bad-inputs-v11.json');
+  fs.writeFileSync(badInputsPath, '{"frames": [{"tick": 5}, {"tick": 5}]}', 'utf8');
+  let exitCode = 0;
+  try {
+    execFileSync(
+      'node',
+      ['scripts/headless.js', '--ticks', '10', '--inputs', badInputsPath, '--out', outPath],
+      { cwd: ROOT, stdio: 'pipe' }
+    );
+  } catch (err) {
+    exitCode = err.status;
+  }
+  assert.equal(exitCode, 2);
 });

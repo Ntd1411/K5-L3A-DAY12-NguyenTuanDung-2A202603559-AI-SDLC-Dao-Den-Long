@@ -1,8 +1,14 @@
 export { createRng } from './rng.js';
-export { ISLAND_RADIUS, SIM_DT, distXZ, clampToIsland, round3, roundPos } from './math.js';
+export { SIM_DT, TICK_RATE, distXZ, dist3D, round3, roundPos } from './math.js';
+export {
+  MAPS,
+  getMapConfig,
+  getSurfacesAt,
+  getGroundHeight,
+  resolveHorizontalObstacles
+} from './maps.js';
 export { FormatError, validateInputs, validateScenario } from './validation.js';
 export {
-  DEFAULT_LANTERN_LAYOUT,
   createSimulationState,
   serializeSnapshot,
   serializeEnd

@@ -1,18 +1,29 @@
 /**
- * Web input controller that latches discrete action taps (Space, E, Q)
+ * Web input controller that latches discrete action taps (Space, E, Q, Shift, Esc/P)
  * until a fixed 60 Hz simulation tick actually consumes them.
  */
-export function createWebInputController({ initialYawDeg = 0 } = {}) {
+export function createWebInputController({ initialYawDeg = 0, sensitivity = 1.0 } = {}) {
   const keys = new Set();
   const latched = {
     jump: false,
     interact: false,
-    pulse: false
+    pulse: false,
+    dash: false
   };
 
   let camYawDeg = initialYawDeg;
+  let mouseSensitivity = sensitivity;
   let isDragging = false;
   let lastPointerX = 0;
+  let onPauseToggleCallback = null;
+
+  function setOnPauseToggle(cb) {
+    onPauseToggleCallback = cb;
+  }
+
+  function setSensitivity(val) {
+    mouseSensitivity = Math.max(0.3, Math.min(2.5, val));
+  }
 
   function onKeyDown(code, repeat = false) {
     keys.add(code);
@@ -20,6 +31,10 @@ export function createWebInputController({ initialYawDeg = 0 } = {}) {
     if (code === 'Space') latched.jump = true;
     if (code === 'KeyE') latched.interact = true;
     if (code === 'KeyQ') latched.pulse = true;
+    if (code === 'ShiftLeft' || code === 'ShiftRight') latched.dash = true;
+    if ((code === 'Escape' || code === 'KeyP') && onPauseToggleCallback) {
+      onPauseToggleCallback();
+    }
   }
 
   function onKeyUp(code) {
@@ -40,7 +55,7 @@ export function createWebInputController({ initialYawDeg = 0 } = {}) {
     if (!isDragging) return;
     const dx = clientX - lastPointerX;
     lastPointerX = clientX;
-    camYawDeg = (camYawDeg - dx * 0.35) % 360;
+    camYawDeg = (camYawDeg - dx * 0.35 * mouseSensitivity) % 360;
   }
 
   function onPointerUp() {
@@ -48,8 +63,8 @@ export function createWebInputController({ initialYawDeg = 0 } = {}) {
   }
 
   function updateCameraYaw(dt) {
-    if (keys.has('ArrowLeft')) camYawDeg += 90 * dt;
-    if (keys.has('ArrowRight')) camYawDeg -= 90 * dt;
+    if (keys.has('ArrowLeft')) camYawDeg += 90 * mouseSensitivity * dt;
+    if (keys.has('ArrowRight')) camYawDeg -= 90 * mouseSensitivity * dt;
     return camYawDeg;
   }
 
@@ -67,12 +82,14 @@ export function createWebInputController({ initialYawDeg = 0 } = {}) {
       cam_yaw_deg: camYawDeg,
       jump: keys.has('Space') || latched.jump,
       interact: keys.has('KeyE') || latched.interact,
-      pulse: keys.has('KeyQ') || latched.pulse
+      pulse: keys.has('KeyQ') || latched.pulse,
+      dash: keys.has('ShiftLeft') || keys.has('ShiftRight') || latched.dash
     };
 
     latched.jump = false;
     latched.interact = false;
     latched.pulse = false;
+    latched.dash = false;
     return frame;
   }
 
@@ -111,6 +128,11 @@ export function createWebInputController({ initialYawDeg = 0 } = {}) {
     updateCameraYaw,
     consumeTickInput,
     attachWindowListeners,
-    getCamYawDeg: () => camYawDeg
+    setSensitivity,
+    setOnPauseToggle,
+    getCamYawDeg: () => camYawDeg,
+    setCamYawDeg: (deg) => {
+      camYawDeg = deg;
+    }
   };
 }

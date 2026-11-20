@@ -1,0 +1,7 @@
+{
+  "player": { "pos": [34.0, 0, 0], "carried": 6, "flames": 3 },
+  "drifters": [{ "id": "D1", "pos": [35.5, 0, 0], "state": "idle" }],
+  "random_motes": false,
+  "random_shades": false,
+  "random_drifters": false
+}

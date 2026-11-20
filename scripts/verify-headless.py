@@ -39,6 +39,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True, help="Evidence JSONL path")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--night", type=int, default=1, choices=[1, 2, 3])
     parser.add_argument("--ticks", type=int, default=120)
     parser.add_argument("--snapshot-every", type=int, default=10)
     parser.add_argument("--scenario", type=Path)
@@ -48,7 +49,7 @@ def main():
         parser.error("--ticks must be nonnegative and --snapshot-every must be positive.")
 
     flags = [
-        "--seed", str(args.seed), "--night", "1", "--ticks", str(args.ticks),
+        "--seed", str(args.seed), "--night", str(args.night), "--ticks", str(args.ticks),
         "--snapshot-every", str(args.snapshot_every),
     ]
     for flag, path in (("--scenario", args.scenario), ("--inputs", args.inputs)):

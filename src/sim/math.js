@@ -1,5 +1,5 @@
-export const ISLAND_RADIUS = 36.0;
 export const SIM_DT = 1 / 60;
+export const TICK_RATE = 60;
 
 /**
  * Horizontal XZ distance between two 3D points.
@@ -14,17 +14,16 @@ export function distXZ(a, b) {
 }
 
 /**
- * Clamp a 3D position onto the circular island in the XZ plane.
- * @param {number[]} pos
- * @param {number} radius
+ * 3D Euclidean distance between two 3D points.
+ * @param {number[]} a
+ * @param {number[]} b
+ * @returns {number}
  */
-export function clampToIsland(pos, radius = ISLAND_RADIUS) {
-  const r = Math.hypot(pos[0], pos[2]);
-  if (r > radius && r > 0) {
-    const scale = radius / r;
-    pos[0] *= scale;
-    pos[2] *= scale;
-  }
+export function dist3D(a, b) {
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  const dz = a[2] - b[2];
+  return Math.hypot(dx, dy, dz);
 }
 
 /**

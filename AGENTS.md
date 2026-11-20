@@ -24,15 +24,17 @@
 
 ## Chạy và kiểm chứng
 
-Khi có game, khai báo `build_cmd`, `run_cmd` và `headless_cmd` trong `game.contract.json` ở thư mục gốc. Viết hướng dẫn cài và chơi trong tối đa ba lệnh ở `README.md`, rồi thử từ bản clone sạch trên macOS hoặc Linux. Ghi điều khiển, cách tính điểm và cách chạy test. Nếu có phần sáng tạo, ghi vào mục “Sáng tạo của tôi” kèm bằng chứng phần lõi vẫn đạt.
+Khi có game, khai báo `build_cmd`, `run_cmd` và `headless_cmd` trong `game.contract.json` (Contract `1.1`) ở thư mục gốc. Viết hướng dẫn cài và chơi trong tối đa ba lệnh ở `README.md`, rồi thử từ bản clone sạch trên macOS hoặc Linux. Ghi điều khiển, cách tính điểm và cách chạy test. Nếu có phần sáng tạo, ghi vào mục “Sáng tạo của tôi” kèm bằng chứng phần lõi vẫn đạt.
 
-Sau khi chạy `build_cmd`, dùng harness Phase 1 để kiểm tra snapshot tick 0, dòng `end` và tính tất định. Truyền thêm `--scenario` và `--inputs` để kiểm tra từng kịch bản.
+Sau khi chạy `build_cmd`, dùng harness để kiểm tra snapshot tick 0, `night_start`, dòng `end` và tính tất định trên cả ba đêm (`--night 1|2|3`). Truyền thêm `--scenario` và `--inputs` để kiểm tra từng kịch bản.
 
 ```sh
-python3 scripts/verify-headless.py --out docs/proof/phase-1/smoke.jsonl
+python3 scripts/verify-headless.py --night 1 --out /tmp/smoke-p2.jsonl
+python3 scripts/verify-headless.py --night 2 --out /tmp/smoke-n2.jsonl
+python3 scripts/verify-headless.py --night 3 --out /tmp/smoke-n3.jsonl
 ```
 
-Kiểm chứng riêng quy tắc 60 tick/giây, hành vi chơi và mã thoát `2` khi tệp đầu vào sai định dạng. Lưu ảnh hoặc clip cho HUD và các phần cần quan sát trực tiếp. Đánh dấu đạt dựa trên kết quả chạy thật.
+Kiểm chứng riêng quy tắc 60 tick/giây, thời gian chạy Đêm 3 đủ 21.600 tick `<= 30s`, FPS bản Chuẩn ở `1280×720` (`>= 30 FPS`), hành vi chơi và mã thoát `2` khi tệp đầu vào sai định dạng. Lưu ảnh hoặc clip cho HUD và các phần cần quan sát trực tiếp. Đánh dấu đạt dựa trên kết quả chạy thật.
 
 ## Git và bàn giao
 
