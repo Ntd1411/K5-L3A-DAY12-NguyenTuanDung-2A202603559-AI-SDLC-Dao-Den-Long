@@ -27,8 +27,10 @@
 
 ## 4. Harness & tiết kiệm token
 
-- **Harness hữu ích nhất**: `scripts/verify-headless.py` (chạy 2 lần cùng seed, so sánh từng byte JSONL) kết hợp `AGENTS.md` (bắt buộc ghi giả định vào `WORKLOG.md` trước khi sửa mã) và bộ fixture JSONL theo từng phase.
-- **Tiết kiệm token**: Đọc có chọn lọc theo đoạn dòng cần sửa, gom nhiều thao tác đọc/sửa độc lập trong cùng lượt, và dùng `node --test` + `verify-headless.py` để xác minh nhanh thay vì mở trình duyệt cho mọi thay đổi logic.
+- **Harness hữu ích nhất**: `scripts/verify-headless.py` (chạy 2 lần cùng seed, so sánh từng byte JSONL), `.github/workflows/ci.yml` (tự động hóa kiểm chứng khi push), kết hợp `AGENTS.md` (bắt buộc ghi giả định vào `WORKLOG.md` trước khi sửa mã) và bộ fixture JSONL theo từng phase.
+- **Ước tính token / chi phí & cách tiết kiệm**:
+  - Harness cục bộ không xuất tổng số token chính thức của từng phiên; ước tính theo quy mô hội thoại mỗi phase (Phase 1 ~80k–120k token, Phase 2 ~150k–220k token, Phase 3 ~80k–120k token, Phase 4 ~120k–180k token, chi phí tương đương khoảng \$1–\$3 tùy model).
+  - **Cách tiết kiệm**: Đọc có chọn lọc theo đoạn dòng cần sửa, gom nhiều thao tác đọc/sửa độc lập trong cùng lượt, và dùng `node --test` + `verify-headless.py` để xác minh nhanh thay vì mở trình duyệt cho mọi thay đổi logic.
 
 ## 5. Nếu làm lại từ đầu
 

@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: python3 scripts/verify-headless.py --night 1 --seed 42 --ticks 120 --out /tmp/ci-n1.jsonl
+      - run: python3 scripts/verify-headless.py --night 2 --seed 42 --ticks 120 --out /tmp/ci-n2.jsonl
+      - run: python3 scripts/verify-headless.py --night 3 --seed 42 --ticks 120 --out /tmp/ci-n3.jsonl
+      - run: node scripts/soak.js --seed 7 --nights 3 --out /tmp/ci-soak.json

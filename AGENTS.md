@@ -24,7 +24,7 @@
 
 ## Chạy và kiểm chứng
 
-Khi có game, khai báo `build_cmd`, `run_cmd` và `headless_cmd` trong `game.contract.json` (Contract `1.1`) ở thư mục gốc. Viết hướng dẫn cài và chơi trong tối đa ba lệnh ở `README.md`, rồi thử từ bản clone sạch trên macOS hoặc Linux. Ghi điều khiển, cách tính điểm và cách chạy test. Nếu có phần sáng tạo, ghi vào mục “Sáng tạo của tôi” kèm bằng chứng phần lõi vẫn đạt.
+Khi có game, khai báo `build_cmd`, `run_cmd`, `headless_cmd`, `bench_cmd` và `soak_cmd` trong `game.contract.json` (Contract `1.3`) ở thư mục gốc. Viết hướng dẫn cài và chơi trong tối đa ba lệnh ở `README.md`, rồi thử từ bản clone sạch trên macOS hoặc Linux. Ghi điều khiển, cách tính điểm và cách chạy test, headless, bench, soak. Nếu có phần sáng tạo, ghi vào mục “Sáng tạo của tôi” kèm bằng chứng phần lõi vẫn đạt.
 
 Sau khi chạy `build_cmd`, dùng harness để kiểm tra snapshot tick 0, `night_start`, dòng `end` và tính tất định trên cả ba đêm (`--night 1|2|3`). Truyền thêm `--scenario` và `--inputs` để kiểm tra từng kịch bản.
 
@@ -32,9 +32,12 @@ Sau khi chạy `build_cmd`, dùng harness để kiểm tra snapshot tick 0, `nig
 python3 scripts/verify-headless.py --night 1 --out /tmp/smoke-p2.jsonl
 python3 scripts/verify-headless.py --night 2 --out /tmp/smoke-n2.jsonl
 python3 scripts/verify-headless.py --night 3 --out /tmp/smoke-n3.jsonl
+node scripts/soak.js --seed 7 --nights 10 --out /tmp/soak.json
+node scripts/bench.js --seed 42 --duration 30 --out /tmp/bench.json
+node scripts/run.js --export-leaderboard /tmp/leaderboard.json
 ```
 
-Kiểm chứng riêng quy tắc 60 tick/giây, thời gian chạy Đêm 3 đủ 21.600 tick `<= 30s`, FPS bản Chuẩn ở `1280×720` (`>= 30 FPS`), hành vi chơi và mã thoát `2` khi tệp đầu vào sai định dạng. Lưu ảnh hoặc clip cho HUD và các phần cần quan sát trực tiếp. Đánh dấu đạt dựa trên kết quả chạy thật.
+Kiểm chứng riêng quy tắc 60 tick/giây, thời gian chạy Đêm 3 đủ 21.600 tick `<= 30s`, FPS bản Chuẩn ở `1280×720` (`>= 30 FPS`), soak test `crashes = 0` và `mem_end_mb <= 1.2 * mem_start_mb`, hành vi chơi và mã thoát `2` khi tệp đầu vào sai định dạng. Lưu ảnh hoặc clip cho HUD và các phần cần quan sát trực tiếp. Đánh dấu đạt dựa trên kết quả chạy thật.
 
 ## Git và bàn giao
 
