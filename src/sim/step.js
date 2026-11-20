@@ -3,6 +3,69 @@ import { SIM_DT, clampToIsland, distXZ } from './math.js';
 const JUMP_VELOCITY = 7.5;
 const GRAVITY = 20.0;
 
+function pushOutsideSafeZones(pos, lanterns, safeRadius) {
+  const litLanterns = lanterns.filter((l) => l.lit);
+  if (litLanterns.length === 0) return;
+
+  for (let iter = 0; iter < 12; iter += 1) {
+    const violating = [];
+    for (const lantern of litLanterns) {
+      if (distXZ(pos, lantern.pos) < safeRadius - 1e-6) {
+        violating.push(lantern);
+      }
+    }
+    if (violating.length === 0) break;
+
+    if (violating.length === 1) {
+      const l = violating[0];
+      const dx = pos[0] - l.pos[0];
+      const dz = pos[2] - l.pos[2];
+      const d = Math.hypot(dx, dz);
+      const nx = d > 1e-6 ? dx / d : 0;
+      const nz = d > 1e-6 ? dz / d : 1;
+      pos[0] = l.pos[0] + nx * safeRadius;
+      pos[2] = l.pos[2] + nz * safeRadius;
+    } else {
+      // Overlapping safe zones: move along summed outward direction (or perpendicular if collinear)
+      let sumX = 0;
+      let sumZ = 0;
+      for (const l of violating) {
+        const dx = pos[0] - l.pos[0];
+        const dz = pos[2] - l.pos[2];
+        const d = Math.hypot(dx, dz);
+        if (d > 1e-6) {
+          sumX += dx / d;
+          sumZ += dz / d;
+        }
+      }
+      let mag = Math.hypot(sumX, sumZ);
+      if (mag <= 1e-6) {
+        const l0 = violating[0];
+        const l1 = violating[1];
+        const lx = l1.pos[0] - l0.pos[0];
+        const lz = l1.pos[2] - l0.pos[2];
+        const lMag = Math.hypot(lx, lz);
+        if (lMag > 1e-6) {
+          sumX = -lz / lMag;
+          sumZ = lx / lMag;
+        } else {
+          sumX = 0;
+          sumZ = 1;
+        }
+        mag = 1;
+      }
+      pos[0] += (sumX / mag) * 0.6;
+      pos[2] += (sumZ / mag) * 0.6;
+    }
+  }
+}
+
+function isPlayerInSafeZone(sim) {
+  return sim.lanterns.some(
+    (l) => l.lit && distXZ(sim.player.pos, l.pos) <= sim.tuning.safe_radius
+  );
+}
+
 /**
  * Find the nearest unlit lantern within interact_radius on the XZ plane.
  * Ties are broken deterministically by ascending lantern ID.
@@ -180,20 +243,13 @@ export function stepSimulation(sim, framePatch = null) {
   if (sim.randomShades && nextTick % 1800 === 0 && sim.shades.length < 5) {
     const angle = sim.rng() * Math.PI * 2;
     const radius = 26 + sim.rng() * 6;
+    const existingIds = new Set(sim.shades.map((s) => s.id));
+    while (existingIds.has(`S${sim.nextShadeIndex}`)) {
+      sim.nextShadeIndex += 1;
+    }
     const id = `S${sim.nextShadeIndex++}`;
     const pos = [Math.cos(angle) * radius, 0, Math.sin(angle) * radius];
-    for (const lantern of sim.lanterns) {
-      if (!lantern.lit) continue;
-      const dx = pos[0] - lantern.pos[0];
-      const dz = pos[2] - lantern.pos[2];
-      const d = Math.hypot(dx, dz);
-      if (d < sim.tuning.safe_radius) {
-        const nx = d > 1e-6 ? dx / d : 0;
-        const nz = d > 1e-6 ? dz / d : 1;
-        pos[0] = lantern.pos[0] + nx * sim.tuning.safe_radius;
-        pos[2] = lantern.pos[2] + nz * sim.tuning.safe_radius;
-      }
-    }
+    pushOutsideSafeZones(pos, sim.lanterns, sim.tuning.safe_radius);
     clampToIsland(pos);
     sim.shades.push({ id, pos, state: 'chase', stunTimer: 0 });
     events.push({
@@ -221,23 +277,12 @@ export function stepSimulation(sim, framePatch = null) {
       }
     }
 
-    for (const lantern of sim.lanterns) {
-      if (!lantern.lit) continue;
-      const dx = shade.pos[0] - lantern.pos[0];
-      const dz = shade.pos[2] - lantern.pos[2];
-      const d = Math.hypot(dx, dz);
-      if (d < sim.tuning.safe_radius) {
-        const nx = d > 1e-6 ? dx / d : 0;
-        const nz = d > 1e-6 ? dz / d : 1;
-        shade.pos[0] = lantern.pos[0] + nx * sim.tuning.safe_radius;
-        shade.pos[2] = lantern.pos[2] + nz * sim.tuning.safe_radius;
-      }
-    }
+    pushOutsideSafeZones(shade.pos, sim.lanterns, sim.tuning.safe_radius);
     clampToIsland(shade.pos);
   }
 
-  // 4e. Player-shade collision
-  if (sim.player.invulnTimer <= 0) {
+  // 4e. Player-shade collision (player inside lit lantern safe_radius is protected)
+  if (sim.player.invulnTimer <= 0 && !isPlayerInSafeZone(sim)) {
     for (const shade of sim.shades) {
       if (shade.state === 'stunned') continue;
       if (distXZ(sim.player.pos, shade.pos) <= sim.tuning.shade_hit_radius) {

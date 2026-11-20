@@ -48,7 +48,95 @@ function createPlayerMesh() {
   return { group, cloakMat };
 }
 
-function createLanternVisual(lantern, safeRadius) {
+function createSoftGlowTexture() {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, 4, half, half, half);
+  grad.addColorStop(0, 'rgba(255, 202, 110, 0.95)');
+  grad.addColorStop(0.45, 'rgba(255, 172, 68, 0.55)');
+  grad.addColorStop(0.8, 'rgba(255, 155, 50, 0.18)');
+  grad.addColorStop(1, 'rgba(255, 150, 45, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createLanternLandmark(id) {
+  const group = new THREE.Group();
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x5d687d, roughness: 0.9 });
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.85 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f5d50, roughness: 0.85 });
+
+  if (id === 'L1') {
+    // Stone archway pillars near L1
+    for (const sx of [-2.4, 2.4]) {
+      const col = new THREE.Mesh(new THREE.BoxGeometry(0.45, 2.4, 0.45), stoneMat);
+      col.position.set(sx, 1.2, -1.6);
+      group.add(col);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.35, 0.55), woodMat);
+    beam.position.set(0, 2.5, -1.6);
+    group.add(beam);
+  } else if (id === 'L2') {
+    // Low-poly pine/bamboo tree cluster
+    for (const [tx, tz, h] of [
+      [2.6, 1.2, 2.6],
+      [3.3, -0.4, 2.0]
+    ]) {
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.0, 6), woodMat);
+      trunk.position.set(tx, 0.5, tz);
+      const crown = new THREE.Mesh(new THREE.ConeGeometry(0.9, h, 7), leafMat);
+      crown.position.set(tx, 0.9 + h * 0.5, tz);
+      group.add(trunk, crown);
+    }
+  } else if (id === 'L3') {
+    // Wooden dock posts
+    for (const [px, pz, h] of [
+      [-2.5, 1.5, 1.3],
+      [-3.1, 0.4, 1.0],
+      [-2.6, -0.7, 1.5]
+    ]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, h, 6), woodMat);
+      post.position.set(px, h / 2, pz);
+      group.add(post);
+    }
+  } else if (id === 'L4') {
+    // Mossy rock stack
+    const r1 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.85, 0), stoneMat);
+    r1.position.set(2.5, 0.65, -1.8);
+    const r2 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55, 0), leafMat);
+    r2.position.set(3.2, 0.4, -1.1);
+    group.add(r1, r2);
+  } else if (id === 'L5') {
+    // Small wooden shrine pavilion
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(1.5, 0.9, 4),
+      new THREE.MeshStandardMaterial({ color: 0x7d3f32, roughness: 0.8 })
+    );
+    roof.position.set(-2.6, 2.1, -1.5);
+    roof.rotation.y = Math.PI / 4;
+    group.add(roof);
+    for (const [dx, dz] of [
+      [-0.8, -0.8],
+      [0.8, -0.8],
+      [-0.8, 0.8],
+      [0.8, 0.8]
+    ]) {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.7, 6), woodMat);
+      p.position.set(-2.6 + dx, 0.85, -1.5 + dz);
+      group.add(p);
+    }
+  }
+  return group;
+}
+
+function createLanternVisual(lantern, safeRadius, glowTexture) {
   const group = new THREE.Group();
   group.position.set(lantern.pos[0], 0, lantern.pos[2]);
 
@@ -88,15 +176,17 @@ function createLanternVisual(lantern, safeRadius) {
   group.add(roof);
 
   const poolMat = new THREE.MeshBasicMaterial({
-    color: 0xffaa44,
+    map: glowTexture,
     transparent: true,
-    opacity: 0.05,
+    opacity: 0.15,
     depthWrite: false
   });
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(safeRadius, 32), poolMat);
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(safeRadius, 36), poolMat);
   pool.rotation.x = -Math.PI / 2;
   pool.position.y = 0.03;
   group.add(pool);
+
+  group.add(createLanternLandmark(lantern.id));
 
   const light = new THREE.PointLight(0xffb347, 0.3, 18, 1.5);
   light.position.y = 2.7;
@@ -137,10 +227,10 @@ function createShadeVisual() {
  * Create and sync all Three.js world visuals from simulation state.
  */
 export function createWorldView(scene, initialSim) {
-  const hemi = new THREE.HemisphereLight(0x556b9e, 0x1a1e2e, 0.75);
+  const hemi = new THREE.HemisphereLight(0x748ec4, 0x26324a, 1.05);
   scene.add(hemi);
 
-  const moon = new THREE.DirectionalLight(0xa8c0ff, 0.85);
+  const moon = new THREE.DirectionalLight(0xbcd0ff, 1.2);
   moon.position.set(-18, 28, -14);
   moon.castShadow = true;
   moon.shadow.mapSize.set(1024, 1024);
@@ -155,7 +245,7 @@ export function createWorldView(scene, initialSim) {
 
   const island = new THREE.Mesh(
     new THREE.CylinderGeometry(ISLAND_RADIUS, ISLAND_RADIUS * 1.05, 2.2, 48),
-    new THREE.MeshStandardMaterial({ color: 0x25303d, roughness: 0.92 })
+    new THREE.MeshStandardMaterial({ color: 0x314154, roughness: 0.9 })
   );
   island.position.y = -1.1;
   island.receiveShadow = true;
@@ -207,9 +297,10 @@ export function createWorldView(scene, initialSim) {
   const playerView = createPlayerMesh();
   scene.add(playerView.group);
 
+  const glowTexture = createSoftGlowTexture();
   const lanternViews = new Map();
   for (const lantern of initialSim.lanterns) {
-    const view = createLanternVisual(lantern, initialSim.tuning.safe_radius);
+    const view = createLanternVisual(lantern, initialSim.tuning.safe_radius, glowTexture);
     lanternViews.set(lantern.id, view);
     scene.add(view.group);
   }
@@ -305,13 +396,13 @@ export function createWorldView(scene, initialSim) {
           view.coreMat.color.setHex(0xffe194);
           view.coreMat.emissiveIntensity = 2.4;
           view.light.intensity = 6.5;
-          view.poolMat.opacity = 0.24;
+          view.poolMat.opacity = 0.65;
           view.core.rotation.y = elapsedSec * 0.8;
         } else {
           view.coreMat.color.setHex(0x474254);
           view.coreMat.emissiveIntensity = 0.15 + progress * 1.1;
           view.light.intensity = 0.25 + progress * 2.0;
-          view.poolMat.opacity = 0.04 + progress * 0.08;
+          view.poolMat.opacity = 0.08 + progress * 0.22;
         }
       }
 

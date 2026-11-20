@@ -223,3 +223,67 @@ test('CLI exits with code 2 on malformed scenario JSON', () => {
   assert.equal(res.status, 2);
   assert.ok(res.stderr.length > 0);
 });
+
+test('player inside safe_radius (4.9m) is protected from edge hits and overlapping safe zones', () => {
+  // Mây at 4.9m from lit L1 (safe_radius = 5.0m), shade right outside 5.0m
+  const simEdge = createSimulationState({
+    seed: 1,
+    tuning,
+    scenario: {
+      player: { pos: [0, 0, 14 + 4.9], flames: 3 },
+      lanterns: [{ id: 'L1', pos: [0, 0, 14], lit: true }],
+      shades: [{ id: 'S1', pos: [0, 0, 14 + 5.05] }],
+      random_motes: false,
+      random_shades: false
+    }
+  });
+  for (let i = 0; i < 30; i += 1) {
+    const ev = stepSimulation(simEdge, {});
+    assert.equal(ev.some((e) => e.name === 'player_hit'), false);
+  }
+  assert.equal(simEdge.player.flames, 3);
+
+  // Overlapping lit lanterns L1 (-3, 0, 0) and L2 (3, 0, 0) with safe_radius = 5.0
+  const simOverlap = createSimulationState({
+    seed: 1,
+    tuning,
+    scenario: {
+      player: { pos: [0, 0, 10] },
+      lanterns: [
+        { id: 'L1', pos: [-3, 0, 0], lit: true },
+        { id: 'L2', pos: [3, 0, 0], lit: true }
+      ],
+      shades: [{ id: 'S1', pos: [0, 0, 0.5] }],
+      random_motes: false,
+      random_shades: false
+    }
+  });
+  stepSimulation(simOverlap, {});
+  const sPos = simOverlap.shades[0].pos;
+  assert.ok(distXZ(sPos, [-3, 0, 0]) >= tuning.safe_radius - 1e-6);
+  assert.ok(distXZ(sPos, [3, 0, 0]) >= tuning.safe_radius - 1e-6);
+});
+
+test('spawned shade IDs never collide with scenario.shades and default motes >= 40', () => {
+  const sim = createSimulationState({
+    seed: 42,
+    tuning,
+    scenario: {
+      player: { pos: [0, 0, 14] },
+      lanterns: [{ id: 'L1', pos: [0, 0, 14], lit: true }],
+      shades: [{ id: 'S2', pos: [0, 0, -25] }],
+      random_shades: true
+    }
+  });
+  assert.equal(sim.motes.length, 40);
+
+  let spawnedId = null;
+  for (let i = 0; i < 1800; i += 1) {
+    const evs = stepSimulation(sim, {});
+    const sp = evs.find((e) => e.name === 'shade_spawned');
+    if (sp) spawnedId = sp.data.id;
+  }
+  assert.equal(spawnedId, 'S3');
+  const ids = sim.shades.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length);
+});

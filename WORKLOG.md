@@ -33,6 +33,12 @@
     - Máy đo: `Linux 7.3.4-1-cachyos x86_64`, `Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz`, Chrome 157 (`WebGL 2`), bản build `vite preview` chế độ Nhẹ (`?light=1`) ở `1280×720`.
     - Kết quả (`600` mẫu khung hình): **`58.8 FPS` trung bình**, **`p95 = 16.8 ms`** (đạt mục tiêu `>= 30 FPS`).
     - Đã kiểm tra thắp `L1`, Bóng Mực dừng ngoài `safe_radius`, xung `Q` tiêu `2` đom đóm và hiện hồi chiêu, `resetGame()` đưa trạng thái về tick 0 sạch sẽ. Ảnh chụp: [04-night1-lightmode-720p.png](docs/proof/phase-1/04-night1-lightmode-720p.png).
+  - **Sửa 3 tồn đọng Phase 1 & 3 nâng cấp đồ họa (16:03 ICT)**:
+    - Bảo vệ Mây khi đứng trong `safe_radius` (`isPlayerInSafeZone`) để không bị Bóng Mực ngoài vòng đánh xuyên mép; thêm `pushOutsideSafeZones` lặp giải quyết chồng lấn nhiều vùng sáng.
+    - Tính `nextShadeIndex` dựa trên số ID `S<n>` lớn nhất trong `scenario.shades` + kiểm tra tập ID đang tồn tại khi sinh ngẫu nhiên (tránh trùng `S2`).
+    - Tăng số đom đóm mặc định từ `32` lên `40` để đủ dùng xung `Q` 4 lần (`25 + 8 = 33`) vẫn thắng được.
+    - Đồ họa ([src/web/render/world.js](src/web/render/world.js)): nâng ánh trăng (`hemi` `1.05`, `moon` `1.2`, mặt đảo `0x314154`), thêm mốc low-poly riêng quanh `L1`–`L5` (cổng đá, cụm thông, cọc bến, đá rêu, mái chòi) và làm quầng sáng chuyển mềm ra mép bằng `CanvasTexture` radial gradient.
+    - `npm test` đạt **14/14**, `npm run build` đạt, `verify-headless.py` đạt.
 - **AI và retro** — Trong test `pulse`, phát hiện Bóng Mực ở trạng thái `chase` tiến thêm 2 tick trước khi nhấn `Q` nên khoảng cách sau đẩy phụ thuộc vị trí ngay trước tick xung; đã chỉnh assertion theo `distBeforePulse + pulse_push_m`. Đã thêm `<link rel="icon" href="data:," />` vào `index.html` để tránh 404 favicon. Token/chi phí chưa có số liệu từ harness.
 
 ### 20/11/2026 · Mốc A–B (Nền tảng và Vòng chơi đầu tiên)

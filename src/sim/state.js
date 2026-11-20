@@ -18,7 +18,7 @@ const STARTER_MOTE_POSITIONS = [
   [2.2, 0, 14.0]
 ];
 
-function generateDefaultMotes(rng, count = 32) {
+function generateDefaultMotes(rng, count = 40) {
   const motes = [];
   let nextId = 1;
   for (const pos of STARTER_MOTE_POSITIONS) {
@@ -109,6 +109,14 @@ export function createSimulationState({ seed = 42, tuning, scenario = null }) {
     pulseCooldown: 0
   };
 
+  let maxShadeNum = shades.length;
+  for (const s of shades) {
+    const match = /^S(\d+)$/.exec(s.id);
+    if (match) {
+      maxShadeNum = Math.max(maxShadeNum, Number(match[1]));
+    }
+  }
+
   const initialTimeLeftS = scenario?.time_left_s ?? tuning.night1_duration_s;
 
   return {
@@ -127,7 +135,7 @@ export function createSimulationState({ seed = 42, tuning, scenario = null }) {
     motes,
     shades,
     randomShades,
-    nextShadeIndex: shades.length + 1,
+    nextShadeIndex: maxShadeNum + 1,
     prevInput: {
       move: [0, 0],
       cam_yaw_deg: 0,
