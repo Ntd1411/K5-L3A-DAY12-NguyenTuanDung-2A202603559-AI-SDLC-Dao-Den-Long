@@ -2,6 +2,7 @@ import './style.css';
 import contract from '../../game.contract.json';
 import {
   SIM_DT,
+  computeBenchMetrics,
   createSimulationState,
   getMapConfig,
   serializeSnapshot,
@@ -13,25 +14,34 @@ import { createHud } from './ui/hud.js';
 import { createWebInputController } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { createAudioController } from './audio.js';
+import { fetchLeaderboard, submitLeaderboardScore } from './leaderboard.js';
 
 const canvas = document.getElementById('game-canvas');
 const hudRoot = document.getElementById('hud-root');
+const params = new URLSearchParams(window.location.search);
+const isBenchMode = params.get('bench') === '1';
+const benchSeed = Number(params.get('seed')) || 42;
+const benchDurationS = Number(params.get('duration')) || 30;
 
 const settings = loadSettings();
-const urlLight = new URLSearchParams(window.location.search).get('light') === '1';
-if (urlLight) settings.lightMode = true;
+if (params.get('light') === '1') settings.lightMode = true;
 
 const renderApp = createRenderApp(canvas);
 const audio = createAudioController(settings.volume);
 const input = createWebInputController({
   initialYawDeg: 0,
-  sensitivity: settings.sensitivity
+  sensitivity: settings.sensitivity,
+  keyBindings: settings.keyBindings
 });
-input.attachWindowListeners(window, canvas);
+if (!isBenchMode) {
+  input.attachWindowListeners(window, canvas);
+}
 
 let currentNight = 1;
 let nightScores = { 1: 0, 2: 0, 3: 0 };
-let uiPhase = 'menu'; // 'menu' | 'intro' | 'playing' | 'paused' | 'result'
+let nightsWonCount = 0;
+let currentSeed = 42;
+let uiPhase = isBenchMode ? 'bench' : 'menu';
 let settingsReturnPhase = 'menu';
 let lastCountdownSec = -1;
 let prevWindWarning = false;
@@ -42,17 +52,19 @@ function getTotalScore() {
 
 let sim = createSimulationState({
   night: currentNight,
-  seed: 42,
-  tuning: contract.tuning
+  seed: isBenchMode ? benchSeed : 42,
+  tuning: contract.tuning,
+  benchMode: isBenchMode
 });
 const worldView = createWorldView(renderApp.scene, sim, renderApp.camera);
 
 function startNight(nightNum) {
   currentNight = nightNum;
   nightScores[currentNight] = 0;
+  currentSeed = 42 + (currentNight - 1) * 101;
   sim = createSimulationState({
     night: currentNight,
-    seed: 42 + (currentNight - 1) * 101,
+    seed: currentSeed,
     tuning: contract.tuning
   });
   input.setCamYawDeg(0);
@@ -98,10 +110,23 @@ function applyAccessiblePalette(enabled) {
   hud.setAccessiblePalette(settings.accessiblePalette);
 }
 
+function applyReduceMotion(enabled) {
+  settings.reduceMotion = Boolean(enabled);
+  saveSettings(settings);
+  hud.setReduceMotion(settings.reduceMotion);
+}
+
+function applyLargeText(enabled) {
+  settings.largeText = Boolean(enabled);
+  saveSettings(settings);
+  hud.setLargeText(settings.largeText);
+}
+
 const hud = createHud(hudRoot, {
   onStartGame: () => {
     audio.ensureContext();
     nightScores = { 1: 0, 2: 0, 3: 0 };
+    nightsWonCount = 0;
     currentNight = 1;
     uiPhase = 'intro';
     hud.showIntro(1, getMapConfig(1));
@@ -127,6 +152,18 @@ const hud = createHud(hudRoot, {
     uiPhase = 'menu';
     hud.setScreen('menu');
   },
+  onOpenLeaderboard: async () => {
+    const entries = await fetchLeaderboard();
+    hud.showLeaderboard(entries);
+  },
+  onSaveLeaderboard: async (name) => {
+    await submitLeaderboardScore({
+      name,
+      score: getTotalScore(),
+      nights_won: nightsWonCount,
+      seed: currentSeed
+    });
+  },
   onOpenSettings: () => {
     settingsReturnPhase = uiPhase;
     hud.showSettings(settings);
@@ -145,19 +182,50 @@ const hud = createHud(hudRoot, {
     input.setSensitivity(s);
     saveSettings(settings);
   },
+  onChangeKeyBindings: (nextBindings) => {
+    settings.keyBindings = nextBindings;
+    input.setKeyBindings(nextBindings);
+    saveSettings(settings);
+  },
   onToggleAccessiblePalette: (enabled) => applyAccessiblePalette(enabled),
+  onToggleReduceMotion: (enabled) => applyReduceMotion(enabled),
+  onToggleLargeText: (enabled) => applyLargeText(enabled),
   onToggleLightMode: () => applyLightMode(!settings.lightMode)
 });
 
-applyLightMode(settings.lightMode);
-applyAccessiblePalette(settings.accessiblePalette);
-hud.setScreen('menu');
+if (isBenchMode) {
+  hudRoot.style.display = 'none';
+  renderApp.setLightMode(false);
+  worldView.setLightMode(false);
+} else {
+  applyLightMode(settings.lightMode);
+  applyAccessiblePalette(settings.accessiblePalette);
+  applyReduceMotion(settings.reduceMotion);
+  applyLargeText(settings.largeText);
+  hud.setScreen('menu');
+}
 
 let accumulator = 0;
 let elapsedSec = 0;
 const frameTimesMs = [];
+const benchDtsMs = [];
+let benchFirstFrameDone = false;
+let benchLoadMs = 0;
+let benchReported = false;
 
 function updateCamera() {
+  if (isBenchMode) {
+    // Radius 30m, Y = 15m, starting at (30, 15, 0), CCW from above, 15s per revolution
+    const angle = (2 * Math.PI * elapsedSec) / 15;
+    renderApp.camera.position.set(
+      30 * Math.cos(angle),
+      15,
+      -30 * Math.sin(angle)
+    );
+    renderApp.camera.lookAt(0, 0, 0);
+    return;
+  }
+
   const theta = (input.getCamYawDeg() * Math.PI) / 180;
   const forwardX = Math.sin(theta);
   const forwardZ = Math.cos(theta);
@@ -183,6 +251,11 @@ function frame(now) {
   const rawDt = Math.min(0.1, frameDtMs / 1000);
   lastTime = now;
 
+  if (!benchFirstFrameDone) {
+    benchFirstFrameDone = true;
+    benchLoadMs = Math.round(now);
+  }
+
   if (frameDtMs > 0 && frameDtMs < 500) {
     frameTimesMs.push(frameDtMs);
     if (frameTimesMs.length > 4000) frameTimesMs.shift();
@@ -190,7 +263,32 @@ function frame(now) {
 
   elapsedSec += rawDt;
 
-  if (uiPhase === 'playing' && sim.state === 'playing') {
+  if (isBenchMode) {
+    accumulator += rawDt;
+    while (accumulator >= SIM_DT) {
+      stepSimulation(sim, null);
+      accumulator -= SIM_DT;
+    }
+    if (elapsedSec >= 3.0 && elapsedSec < 3.0 + benchDurationS) {
+      if (frameDtMs > 0) benchDtsMs.push(frameDtMs);
+    } else if (elapsedSec >= 3.0 + benchDurationS && !benchReported) {
+      benchReported = true;
+      const metrics = computeBenchMetrics(benchDtsMs);
+      const gl = renderApp.renderer.getContext();
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const gpuName = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'WebGL2';
+      fetch('/api/bench-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...metrics,
+          load_ms: benchLoadMs,
+          renderer: `Three.js r174 WebGL2 (${gpuName})`
+        })
+      }).catch(() => {});
+      return;
+    }
+  } else if (uiPhase === 'playing' && sim.state === 'playing') {
     accumulator += rawDt;
     input.updateCameraYaw(rawDt);
     while (accumulator >= SIM_DT && sim.state === 'playing') {
@@ -206,14 +304,17 @@ function frame(now) {
         } else if (ev.name === 'player_hit') {
           hud.triggerHitFlash();
           audio.playCue('player_hit');
+        } else if (ev.name === 'shade_spawned') {
+          const spawned = sim.shades.find((s) => s.id === ev.data.id);
+          hud.triggerShadeSpawnedAlert(spawned?.pos);
+          audio.playCue('shade_spawned');
         } else if (
           ev.name === 'mote_picked' ||
           ev.name === 'deposit' ||
           ev.name === 'refuel' ||
-          ev.name === 'lantern_out' ||
           ev.name === 'lantern_lit' ||
+          ev.name === 'lantern_out' ||
           ev.name === 'dash' ||
-          ev.name === 'shade_spawned' ||
           ev.name === 'charm_picked' ||
           ev.name === 'drifter_steal' ||
           ev.name === 'drifter_drop'
@@ -236,6 +337,7 @@ function frame(now) {
       if (sim.state === 'won' || sim.state === 'lost') {
         if (sim.state === 'won') {
           nightScores[sim.night] = sim.score;
+          nightsWonCount = Math.max(nightsWonCount, sim.night);
           audio.playCue('won');
         } else {
           audio.playCue('lost');
@@ -252,7 +354,9 @@ function frame(now) {
 
   worldView.sync(sim, elapsedSec, rawDt);
   updateCamera();
-  hud.update(sim, getTotalScore(), renderApp.camera, rawDt);
+  if (!isBenchMode) {
+    hud.update(sim, getTotalScore(), renderApp.camera, rawDt);
+  }
   renderApp.renderer.render(renderApp.scene, renderApp.camera);
 
   requestAnimationFrame(frame);
@@ -292,5 +396,7 @@ window.__GAME_DEBUG__ = {
 
 worldView.sync(sim, 0, SIM_DT);
 updateCamera();
-hud.update(sim, getTotalScore(), renderApp.camera, 0);
+if (!isBenchMode) {
+  hud.update(sim, getTotalScore(), renderApp.camera, 0);
+}
 requestAnimationFrame(frame);

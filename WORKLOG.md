@@ -1,5 +1,32 @@
 # Nhật ký lab
 
+## Phase 4 · Ticket-04 "Bình minh: phát hành v1.0.0" (Contract v1.3)
+
+### 20/11/2026 · Kế hoạch và giả định Phase 4 (bắt đầu 17:53 ICT)
+
+- **Mốc hồi quy**: Commit `30ac376` (`tag: phase-3`, `29/29` test đạt).
+- **Phạm vi**: Nâng `game.contract.json` lên `1.3`, bổ sung `run_cmd` (`node scripts/run.js`), `bench_cmd` (`node scripts/bench.js`), `soak_cmd` (`node scripts/soak.js`), bảng xếp hạng cục bộ (top 10 + `--export-leaderboard`), 4 tính năng tiếp cận (đổi phím, chỉ báo hình ảnh, giảm chuyển động, cỡ chữ ≥ 18 px + chữ lớn ×1.25), đóng gói `v1.0.0`, `CREDITS.md`, `LICENSE`, retro 4 phase và video demo.
+- **Giả định & quy ước**:
+  - `bench.js` khởi chạy Chrome/Chromium có sẵn trên hệ thống với `--disable-gpu-vsync --window-size=1280,720`, mở bản build `dist/?bench=1&seed=...&duration=...` qua HTTP loopback và nhận kết quả đo qua `POST /api/bench-result`, không cần phụ thuộc ngoài.
+  - `soak.js` dùng một tiến trình Node.js chạy xoay vòng Đêm `1 → 2 → 3` với seed `seed + i`, dùng một luồng RNG riêng cho input ngẫu nhiên (đổi hướng mỗi 30 tick; xác suất nhảy 5%, lướt 3%, Tỏa Sáng 2%, tương tác 10%).
+  - Bảng xếp hạng lưu tại `data/leaderboard.json` (ghi nguyên tử qua tệp tạm rồi đổi tên), hỗ trợ tên `^[A-Za-z0-9_À-ỹ ]{3,12}$` (khớp `[A-Za-z0-9_]{3,12}` và tiếng Việt), giữ top 10 theo `score` giảm dần, hòa điểm xếp đạt sớm trước.
+
+### 20/11/2026 · Nghiệm thu & Phát hành v1.0.0 (17:53–19:04 ICT)
+
+- **Lệnh kiểm chứng & Kết quả**:
+  - `npm test`: **Đạt (33/33 test)** ([phase4-bench-soak-leaderboard.test.js](tests/phase4-bench-soak-leaderboard.test.js) + toàn bộ test hồi quy Phase 1–3).
+  - `npm run build`: **Đạt** (`dist/` build trong `3.20s`).
+  - `node scripts/soak.js --seed 7 --nights 10 --out docs/proof/phase-4/soak.json`: **Đạt** (`nights = 10`, `crashes = 0`, `mem_start_mb = 91.55`, `mem_end_mb = 110.42`, `duration_s = 1.196`) → [soak.json](soak.json).
+  - `node scripts/bench.js --seed 42 --duration 30 --out docs/proof/phase-4/bench.json` (Chrome `1280×720`, `Intel(R) UHD Graphics 620`, 200 Bóng Mực `wander` + 100 đom đóm, `L1`–`L3` sáng): **Đạt** (`avg_fps = 36.5`, `p1_low_fps = 10.8`, `frame_ms_p95 = 50 ms`, `frames = 1098`, `load_ms = 902`, `peak_mem_mb = 317`) → [bench.json](bench.json).
+  - **Playtest Mốc C–D qua `node scripts/run.js` (`1280×720`, Chrome, 0 lỗi console)**:
+    - Cỡ chữ mặc định `18px`, bật **Chữ lớn (×1.25)** tăng lên `22.5px`; bật **Giảm chuyển động** và reload xác nhận `localStorage` lưu bền vững.
+    - Đổi phím có báo trùng (`⚠ Phím KeyE đã dùng cho "Nạp/Châm"!`) và **Khôi phục mặc định** trả về `Space`.
+    - Chỉ báo Bóng Mực xuất hiện (`⚠ Bóng Mực vừa xuất hiện!` + mũi tên `shade-arrow`), lưu điểm `"Dung_01"` lên Top 10 và kiểm chứng `node scripts/run.js --export-leaderboard /tmp/lb-export.json` khớp 100%.
+    - Ảnh chụp & video: [01-menu-large-text.png](docs/proof/phase-4/01-menu-large-text.png), [02-shade-spawn-indicator.png](docs/proof/phase-4/02-shade-spawn-indicator.png), [03-leaderboard-top10.png](docs/proof/phase-4/03-leaderboard-top10.png), [demo.mp4](docs/demo/demo.mp4).
+- **Đóng gói & Tài liệu**: Đã tạo [LICENSE](LICENSE), [CREDITS.md](CREDITS.md), [CHANGELOG.md](CHANGELOG.md), [docs/retro-4-phases.md](docs/retro-4-phases.md), cập nhật [README.md](README.md) và đóng gói `dao-den-long-web-v1.0.0.zip` (kiểm tra giải nén sạch ở `/tmp/clean-release-test`).
+
+---
+
 ## Phase 3 · Ticket-03 "Đèn cạn dầu" (Contract v1.2)
 
 ### 20/11/2026 · Mốc A–B bắt đầu 17:23 ICT

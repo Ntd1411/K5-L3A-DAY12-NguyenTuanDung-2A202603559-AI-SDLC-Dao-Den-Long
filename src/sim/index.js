@@ -14,3 +14,8 @@ export {
   serializeEnd
 } from './state.js';
 export { findNearestInteractableLantern, stepSimulation } from './step.js';
+export {
+  isValidLeaderboardName,
+  sortAndCapLeaderboard,
+  computeBenchMetrics
+} from './leaderboard.js';

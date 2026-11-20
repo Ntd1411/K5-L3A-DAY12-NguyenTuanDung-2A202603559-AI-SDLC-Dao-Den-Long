@@ -1,8 +1,14 @@
+import { DEFAULT_KEY_BINDINGS } from './settings.js';
+
 /**
- * Web input controller that latches discrete action taps (Space, E, Q, Shift, Esc/P)
- * until a fixed 60 Hz simulation tick actually consumes them.
+ * Web input controller that latches discrete action taps (jump, interact, pulse, dash, pause)
+ * and supports customizable key bindings.
  */
-export function createWebInputController({ initialYawDeg = 0, sensitivity = 1.0 } = {}) {
+export function createWebInputController({
+  initialYawDeg = 0,
+  sensitivity = 1.0,
+  keyBindings = DEFAULT_KEY_BINDINGS
+} = {}) {
   const keys = new Set();
   const latched = {
     jump: false,
@@ -11,6 +17,7 @@ export function createWebInputController({ initialYawDeg = 0, sensitivity = 1.0 
     dash: false
   };
 
+  let bindings = { ...DEFAULT_KEY_BINDINGS, ...keyBindings };
   let camYawDeg = initialYawDeg;
   let mouseSensitivity = sensitivity;
   let isDragging = false;
@@ -25,14 +32,31 @@ export function createWebInputController({ initialYawDeg = 0, sensitivity = 1.0 
     mouseSensitivity = Math.max(0.3, Math.min(2.5, val));
   }
 
+  function setKeyBindings(nextBindings) {
+    bindings = { ...DEFAULT_KEY_BINDINGS, ...nextBindings };
+  }
+
+  function getKeyBindings() {
+    return { ...bindings };
+  }
+
+  function isActionCode(action, code) {
+    if (bindings[action] === code) return true;
+    if (action === 'dash' && bindings.dash === 'ShiftLeft' && code === 'ShiftRight') return true;
+    if (action === 'pause' && code === 'Escape') return true;
+    if (action === 'up' && bindings.up === 'KeyW' && code === 'ArrowUp') return true;
+    if (action === 'down' && bindings.down === 'KeyS' && code === 'ArrowDown') return true;
+    return false;
+  }
+
   function onKeyDown(code, repeat = false) {
     keys.add(code);
     if (repeat) return;
-    if (code === 'Space') latched.jump = true;
-    if (code === 'KeyE') latched.interact = true;
-    if (code === 'KeyQ') latched.pulse = true;
-    if (code === 'ShiftLeft' || code === 'ShiftRight') latched.dash = true;
-    if ((code === 'Escape' || code === 'KeyP') && onPauseToggleCallback) {
+    if (isActionCode('jump', code)) latched.jump = true;
+    if (isActionCode('interact', code)) latched.interact = true;
+    if (isActionCode('pulse', code)) latched.pulse = true;
+    if (isActionCode('dash', code)) latched.dash = true;
+    if (isActionCode('pause', code) && onPauseToggleCallback) {
       onPauseToggleCallback();
     }
   }
@@ -68,22 +92,30 @@ export function createWebInputController({ initialYawDeg = 0, sensitivity = 1.0 
     return camYawDeg;
   }
 
+  function isActionHeld(action) {
+    if (keys.has(bindings[action])) return true;
+    if (action === 'dash' && bindings.dash === 'ShiftLeft' && keys.has('ShiftRight')) return true;
+    if (action === 'up' && bindings.up === 'KeyW' && keys.has('ArrowUp')) return true;
+    if (action === 'down' && bindings.down === 'KeyS' && keys.has('ArrowDown')) return true;
+    return false;
+  }
+
   function consumeTickInput() {
     let mx = 0;
     let mz = 0;
-    if (keys.has('KeyW') || keys.has('ArrowUp')) mz += 1;
-    if (keys.has('KeyS') || keys.has('ArrowDown')) mz -= 1;
+    if (isActionHeld('up')) mz += 1;
+    if (isActionHeld('down')) mz -= 1;
     // Screen-right is -X when looking along +Z in Three.js right-handed space
-    if (keys.has('KeyD')) mx -= 1;
-    if (keys.has('KeyA')) mx += 1;
+    if (isActionHeld('right')) mx -= 1;
+    if (isActionHeld('left')) mx += 1;
 
     const frame = {
       move: [mx, mz],
       cam_yaw_deg: camYawDeg,
-      jump: keys.has('Space') || latched.jump,
-      interact: keys.has('KeyE') || latched.interact,
-      pulse: keys.has('KeyQ') || latched.pulse,
-      dash: keys.has('ShiftLeft') || keys.has('ShiftRight') || latched.dash
+      jump: isActionHeld('jump') || latched.jump,
+      interact: isActionHeld('interact') || latched.interact,
+      pulse: isActionHeld('pulse') || latched.pulse,
+      dash: isActionHeld('dash') || latched.dash
     };
 
     latched.jump = false;
@@ -129,6 +161,8 @@ export function createWebInputController({ initialYawDeg = 0, sensitivity = 1.0 
     consumeTickInput,
     attachWindowListeners,
     setSensitivity,
+    setKeyBindings,
+    getKeyBindings,
     setOnPauseToggle,
     getCamYawDeg: () => camYawDeg,
     setCamYawDeg: (deg) => {

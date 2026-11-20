@@ -30,7 +30,7 @@ test('v1.2 snapshot defaults fuel and exposes dynamic capacity', () => {
     ]
   });
   const snapshot = serializeSnapshot(sim);
-  assert.equal(contract.contract_version, '1.2');
+  assert.equal(contract.contract_version, '1.3');
   assert.equal(snapshot.player.capacity, 20);
   assert.deepEqual(
     snapshot.lanterns.slice(0, 2).map((l) => [l.fuel, l.ever_lit, l.relit_count]),

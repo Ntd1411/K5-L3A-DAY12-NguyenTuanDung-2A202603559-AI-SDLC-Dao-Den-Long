@@ -813,6 +813,29 @@ export function createWorldView(scene, initialSim, camera = null) {
   const drifterViews = new Map();
   const charmViews = new Map();
 
+  // Instanced fast-path for Motes (up to 128) & Shades (up to 256)
+  const MAX_MOTES_INST = 128;
+  const moteInstGeo = new THREE.OctahedronGeometry(0.2, 0);
+  const moteInstMat = new THREE.MeshBasicMaterial({ color: COLORS.moteCore });
+  const moteInstMesh = new THREE.InstancedMesh(moteInstGeo, moteInstMat, MAX_MOTES_INST);
+  moteInstMesh.count = 0;
+  moteInstMesh.frustumCulled = false;
+  scene.add(moteInstMesh);
+
+  const MAX_SHADES_INST = 256;
+  const shadeInstGeo = new THREE.ConeGeometry(0.52, 1.55, 8);
+  const shadeInstMat = new THREE.MeshLambertMaterial({
+    color: COLORS.shadeBody,
+    emissive: COLORS.shadeRim,
+    emissiveIntensity: 0.72
+  });
+  const shadeInstMesh = new THREE.InstancedMesh(shadeInstGeo, shadeInstMat, MAX_SHADES_INST);
+  shadeInstMesh.count = 0;
+  shadeInstMesh.frustumCulled = false;
+  scene.add(shadeInstMesh);
+
+  const instDummy = new THREE.Object3D();
+
   const windLeaves = [];
   const leafGeo = new THREE.PlaneGeometry(0.32, 0.18);
   const leafMat = new THREE.MeshBasicMaterial({
@@ -997,61 +1020,100 @@ export function createWorldView(scene, initialSim, camera = null) {
       }
     }
 
-    // Motes
-    const activeMoteIds = new Set();
-    for (const m of sim.motes) {
-      if (!m.active) continue;
-      activeMoteIds.add(m.id);
-      let mv = moteViews.get(m.id);
-      if (!mv) {
-        mv = createMoteMesh(m.pos, warmHaloTex);
-        scene.add(mv.group);
-        moteViews.set(m.id, mv);
+    // Motes (InstancedMesh when > 30 for bench, else detailed sprites)
+    if (sim.benchMode || sim.motes.length > 35) {
+      if (moteViews.size > 0) clearMap(moteViews);
+      let mIdx = 0;
+      for (const m of sim.motes) {
+        if (!m.active || mIdx >= MAX_MOTES_INST) continue;
+        instDummy.position.set(
+          m.pos[0],
+          m.pos[1] + 0.65 + Math.sin(elapsedSec * 3.2 + m.pos[0]) * 0.14,
+          m.pos[2]
+        );
+        instDummy.rotation.set(0, elapsedSec * 1.8 + m.pos[0], 0);
+        instDummy.scale.set(1, 1, 1);
+        instDummy.updateMatrix();
+        moteInstMesh.setMatrixAt(mIdx, instDummy.matrix);
+        mIdx += 1;
       }
-      mv.group.position.set(
-        m.pos[0],
-        m.pos[1] + 0.65 + Math.sin(elapsedSec * 3.2 + m.pos[0]) * 0.14,
-        m.pos[2]
-      );
-      mv.core.rotation.y += dt * 1.8;
-    }
-    for (const [id, mv] of moteViews.entries()) {
-      if (!activeMoteIds.has(id)) {
-        scene.remove(mv.group);
-        moteViews.delete(id);
+      moteInstMesh.count = mIdx;
+      moteInstMesh.instanceMatrix.needsUpdate = true;
+    } else {
+      moteInstMesh.count = 0;
+      const activeMoteIds = new Set();
+      for (const m of sim.motes) {
+        if (!m.active) continue;
+        activeMoteIds.add(m.id);
+        let mv = moteViews.get(m.id);
+        if (!mv) {
+          mv = createMoteMesh(m.pos, warmHaloTex);
+          scene.add(mv.group);
+          moteViews.set(m.id, mv);
+        }
+        mv.group.position.set(
+          m.pos[0],
+          m.pos[1] + 0.65 + Math.sin(elapsedSec * 3.2 + m.pos[0]) * 0.14,
+          m.pos[2]
+        );
+        mv.core.rotation.y += dt * 1.8;
+      }
+      for (const [id, mv] of moteViews.entries()) {
+        if (!activeMoteIds.has(id)) {
+          scene.remove(mv.group);
+          moteViews.delete(id);
+        }
       }
     }
 
-    // Shades (dark purple = danger)
-    const activeShadeIds = new Set();
-    for (const s of sim.shades) {
-      activeShadeIds.add(s.id);
-      let sv = shadeViews.get(s.id);
-      if (!sv) {
-        sv = createShadeMesh(purpleAuraTex);
-        scene.add(sv.group);
-        shadeViews.set(s.id, sv);
+    // Shades (InstancedMesh when > 20 for bench, else detailed meshes)
+    if (sim.benchMode || sim.shades.length > 20) {
+      if (shadeViews.size > 0) clearMap(shadeViews);
+      shadeInstMat.emissive.setHex(accessiblePalette ? 0x00b3ff : COLORS.shadeRim);
+      let sIdx = 0;
+      for (const s of sim.shades) {
+        if (sIdx >= MAX_SHADES_INST) break;
+        instDummy.position.set(s.pos[0], s.pos[1] + 0.78, s.pos[2]);
+        instDummy.rotation.set(0, s.wanderAngle || 0, 0);
+        instDummy.scale.set(1, 1, 1);
+        instDummy.updateMatrix();
+        shadeInstMesh.setMatrixAt(sIdx, instDummy.matrix);
+        sIdx += 1;
       }
-      sv.group.position.set(s.pos[0], s.pos[1], s.pos[2]);
-      if (s.state === 'stunned') {
-        sv.bodyMat.color.setHex(COLORS.shadeStunned);
-        sv.bodyMat.emissive.setHex(COLORS.shadeStunned);
-        sv.bodyMat.emissiveIntensity = 0.3;
-        sv.auraMat.opacity = 0.18;
-      } else {
-        const shadeRim = accessiblePalette ? 0x00b3ff : COLORS.shadeRim;
-        sv.bodyMat.color.setHex(COLORS.shadeBody);
-        sv.bodyMat.emissive.setHex(shadeRim);
-        sv.bodyMat.emissiveIntensity = 0.72;
-        sv.auraMat.color.setHex(accessiblePalette ? 0x00b3ff : 0xffffff);
-        sv.eyeMat.color.setHex(accessiblePalette ? 0x00b3ff : 0xff5a5f);
-        sv.auraMat.opacity = 0.65 + Math.sin(elapsedSec * 4 + s.pos[0]) * 0.12;
+      shadeInstMesh.count = sIdx;
+      shadeInstMesh.instanceMatrix.needsUpdate = true;
+    } else {
+      shadeInstMesh.count = 0;
+      const activeShadeIds = new Set();
+      for (const s of sim.shades) {
+        activeShadeIds.add(s.id);
+        let sv = shadeViews.get(s.id);
+        if (!sv) {
+          sv = createShadeMesh(purpleAuraTex);
+          scene.add(sv.group);
+          shadeViews.set(s.id, sv);
+        }
+        sv.group.position.set(s.pos[0], s.pos[1], s.pos[2]);
+        if (s.state === 'stunned') {
+          sv.bodyMat.color.setHex(COLORS.shadeStunned);
+          sv.bodyMat.emissive.setHex(COLORS.shadeStunned);
+          sv.bodyMat.emissiveIntensity = 0.3;
+          sv.auraMat.opacity = 0.18;
+        } else {
+          const shadeRim = accessiblePalette ? 0x00b3ff : COLORS.shadeRim;
+          sv.bodyMat.color.setHex(COLORS.shadeBody);
+          sv.bodyMat.emissive.setHex(shadeRim);
+          sv.bodyMat.emissiveIntensity = 0.72;
+          sv.auraMat.color.setHex(accessiblePalette ? 0x00b3ff : 0xffffff);
+          sv.eyeMat.color.setHex(accessiblePalette ? 0x00b3ff : 0xff5a5f);
+          sv.auraMat.opacity = 0.65 + Math.sin(elapsedSec * 4 + s.pos[0]) * 0.12;
+        }
       }
-    }
-    for (const [id, sv] of shadeViews.entries()) {
-      if (!activeShadeIds.has(id)) {
-        scene.remove(sv.group);
-        shadeViews.delete(id);
+      for (const [id, sv] of shadeViews.entries()) {
+        if (!activeShadeIds.has(id)) {
+          scene.remove(sv.group);
+          shadeViews.delete(id);
+        }
       }
     }
 

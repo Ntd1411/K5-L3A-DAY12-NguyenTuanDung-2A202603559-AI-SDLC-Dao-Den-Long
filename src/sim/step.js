@@ -168,6 +168,28 @@ export function stepSimulation(sim, framePatch = null) {
     return [];
   }
 
+  if (sim.benchMode) {
+    sim.tick += 1;
+    sim.simTick += 1;
+    const wanderStep = sim.map.shadeSpeed * 0.4 * SIM_DT;
+    for (const shade of sim.shades) {
+      const prevX = shade.pos[0];
+      const prevZ = shade.pos[2];
+      shade.pos[0] += Math.cos(shade.wanderAngle) * wanderStep;
+      shade.pos[2] += Math.sin(shade.wanderAngle) * wanderStep;
+      if (sim.simTick % 120 === 0) {
+        shade.wanderAngle += (sim.rng() - 0.5) * 1.5;
+      }
+      pushOutsideSafeZones(shade.pos, sim.lanterns, sim.tuning.safe_radius);
+      if (Math.hypot(shade.pos[0], shade.pos[2]) > 39.5) {
+        shade.pos[0] = prevX;
+        shade.pos[2] = prevZ;
+        shade.wanderAngle += Math.PI;
+      }
+    }
+    return [];
+  }
+
   const prev = sim.prevInput;
   const input = {
     move: framePatch?.move ? [framePatch.move[0], framePatch.move[1]] : [...prev.move],

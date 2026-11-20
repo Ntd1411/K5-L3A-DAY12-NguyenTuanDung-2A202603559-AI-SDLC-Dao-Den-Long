@@ -38,10 +38,116 @@ function maxNumericId(items, prefix) {
 /**
  * Create initial simulation state from night, seed, tuning, and optional validated scenario.
  */
-export function createSimulationState({ night = 1, seed = 42, tuning, scenario = null }) {
+export function createSimulationState({
+  night = 1,
+  seed = 42,
+  tuning,
+  scenario = null,
+  benchMode = false
+}) {
   const rng = createRng(seed);
   const map = getMapConfig(night);
   const fuelMaxUnits = Math.round(tuning.fuel_max * TICK_RATE);
+
+  if (benchMode) {
+    const benchLanterns = map.lanterns.map((entry, idx) => ({
+      id: entry.id,
+      pos: [...entry.pos],
+      lit: idx < 3,
+      deposited: idx < 3 ? tuning.lantern_cost : 0,
+      fuelUnits: idx < 3 ? fuelMaxUnits : 0,
+      everLit: idx < 3,
+      relitCount: 0
+    }));
+    const benchMotes = [];
+    for (let i = 0; i < 100; i += 1) {
+      const a = rng() * Math.PI * 2;
+      const r = Math.sqrt(rng()) * 36;
+      benchMotes.push({
+        id: `M${i + 1}`,
+        pos: [round3(Math.cos(a) * r), 0, round3(Math.sin(a) * r)],
+        active: true,
+        kind: 'random',
+        ttlTicks: null,
+        spawnedThisTick: false
+      });
+    }
+    const benchShades = [];
+    for (let i = 0; i < 200; i += 1) {
+      const a = rng() * Math.PI * 2;
+      const r = 8 + Math.sqrt(rng()) * 29;
+      benchShades.push({
+        id: `S${i + 1}`,
+        pos: [round3(Math.cos(a) * r), 0, round3(Math.sin(a) * r)],
+        state: 'wander',
+        stateTicksLeft: 0,
+        pushTicksLeft: 0,
+        pushDir: [1, 0],
+        safePushTicksLeft: 0,
+        targetLanternId: null,
+        drainTicks: 0,
+        wanderAngle: rng() * Math.PI * 2,
+        spawnedThisTick: false
+      });
+    }
+    return {
+      night: 1,
+      map,
+      seed,
+      tuning,
+      rng,
+      benchMode: true,
+      tick: 0,
+      simTick: 0,
+      state: 'playing',
+      endReason: null,
+      initialTimeLeftS: tuning.night1_duration_s,
+      timeLeftTicks: Math.round(tuning.night1_duration_s * TICK_RATE),
+      timeLeftS: tuning.night1_duration_s,
+      score: 0,
+      player: {
+        pos: [0, 0, 0],
+        vel: [0, 0, 0],
+        grounded: true,
+        facingYawDeg: 0,
+        flames: tuning.flames,
+        carried: 0,
+        capacity: 10,
+        successfulLights: 0,
+        invulnTicks: 0,
+        dashTicks: 0,
+        dashDir: [0, 1],
+        dashCdTicks: 0,
+        pulseCdTicks: 0,
+        charmTicks: 0,
+        respawnTicks: 0,
+        launched: false,
+        launchVel: [0, 0]
+      },
+      lanterns: benchLanterns,
+      motes: benchMotes,
+      shades: benchShades,
+      drifters: [],
+      charms: [],
+      randomMotes: false,
+      randomShades: false,
+      randomDrifters: false,
+      windEnabled: false,
+      wind: { active: false, warning: false, dirDeg: 0, dirVec: [1, 0], ticksLeft: 0 },
+      nextMoteIndex: 101,
+      nextShadeIndex: 201,
+      nextDrifterIndex: 1,
+      prevInput: {
+        move: [0, 0],
+        cam_yaw_deg: 0,
+        jump: false,
+        interact: false,
+        pulse: false,
+        dash: false,
+        pause: false
+      }
+    };
+  }
 
   const lanterns = map.lanterns.map((entry) => ({
     id: entry.id,
