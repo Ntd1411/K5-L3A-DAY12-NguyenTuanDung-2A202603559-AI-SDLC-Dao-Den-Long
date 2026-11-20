@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Package web release zip
+        run: |
+          ZIP_NAME="dao-den-long-web-${GITHUB_REF_NAME}.zip"
+          zip -r "$ZIP_NAME" dist scripts/run.js src/sim game.contract.json package.json README.md LICENSE
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${ZIP_NAME}" docs/demo/demo.mp4 --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${ZIP_NAME}" docs/demo/demo.mp4 \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Đảo Đèn Lồng ${GITHUB_REF_NAME} (Contract v1.3). Giải nén và chạy: \`node scripts/run.js\`."
+          fi
