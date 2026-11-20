@@ -243,25 +243,26 @@ test('player inside safe_radius (4.9m) is protected from edge hits and overlappi
   }
   assert.equal(simEdge.player.flames, 3);
 
-  // Overlapping lit lanterns L1 (-3, 0, 0) and L2 (3, 0, 0) with safe_radius = 5.0
+  // Overlapping lit lanterns L1 (-4, 0, 0) and L2 (4, 0, 0) (8m apart, safe_radius = 5.0m)
+  // Shade placed at (1, 0, 0) (5m from L1, 3m from L2) must be >= 5.0m from BOTH at tick 1
   const simOverlap = createSimulationState({
     seed: 1,
     tuning,
     scenario: {
       player: { pos: [0, 0, 10] },
       lanterns: [
-        { id: 'L1', pos: [-3, 0, 0], lit: true },
-        { id: 'L2', pos: [3, 0, 0], lit: true }
+        { id: 'L1', pos: [-4, 0, 0], lit: true },
+        { id: 'L2', pos: [4, 0, 0], lit: true }
       ],
-      shades: [{ id: 'S1', pos: [0, 0, 0.5] }],
+      shades: [{ id: 'S1', pos: [1, 0, 0] }],
       random_motes: false,
       random_shades: false
     }
   });
   stepSimulation(simOverlap, {});
   const sPos = simOverlap.shades[0].pos;
-  assert.ok(distXZ(sPos, [-3, 0, 0]) >= tuning.safe_radius - 1e-6);
-  assert.ok(distXZ(sPos, [3, 0, 0]) >= tuning.safe_radius - 1e-6);
+  assert.ok(distXZ(sPos, [-4, 0, 0]) >= tuning.safe_radius - 1e-6);
+  assert.ok(distXZ(sPos, [4, 0, 0]) >= tuning.safe_radius - 1e-6);
 });
 
 test('spawned shade IDs never collide with scenario.shades and default motes >= 40', () => {

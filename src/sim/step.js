@@ -3,60 +3,73 @@ import { SIM_DT, clampToIsland, distXZ } from './math.js';
 const JUMP_VELOCITY = 7.5;
 const GRAVITY = 20.0;
 
+function isOutsideAll(x, z, litLanterns, safeRadius) {
+  for (const l of litLanterns) {
+    if (Math.hypot(x - l.pos[0], z - l.pos[2]) < safeRadius - 1e-6) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function pushOutsideSafeZones(pos, lanterns, safeRadius) {
   const litLanterns = lanterns.filter((l) => l.lit);
   if (litLanterns.length === 0) return;
+  if (isOutsideAll(pos[0], pos[2], litLanterns, safeRadius)) return;
 
-  for (let iter = 0; iter < 12; iter += 1) {
-    const violating = [];
-    for (const lantern of litLanterns) {
-      if (distXZ(pos, lantern.pos) < safeRadius - 1e-6) {
-        violating.push(lantern);
-      }
+  const candidates = [];
+
+  // 1. Radial projections onto each lit lantern's safe_radius circle
+  for (const l of litLanterns) {
+    const dx = pos[0] - l.pos[0];
+    const dz = pos[2] - l.pos[2];
+    const d = Math.hypot(dx, dz);
+    const nx = d > 1e-6 ? dx / d : 0;
+    const nz = d > 1e-6 ? dz / d : 1;
+    const cx = l.pos[0] + nx * safeRadius;
+    const cz = l.pos[2] + nz * safeRadius;
+    if (isOutsideAll(cx, cz, litLanterns, safeRadius)) {
+      candidates.push([cx, cz]);
     }
-    if (violating.length === 0) break;
+  }
 
-    if (violating.length === 1) {
-      const l = violating[0];
-      const dx = pos[0] - l.pos[0];
-      const dz = pos[2] - l.pos[2];
+  // 2. Pairwise circle-circle intersection points of overlapping lit lanterns
+  for (let i = 0; i < litLanterns.length; i += 1) {
+    for (let j = i + 1; j < litLanterns.length; j += 1) {
+      const a = litLanterns[i].pos;
+      const b = litLanterns[j].pos;
+      const dx = b[0] - a[0];
+      const dz = b[2] - a[2];
       const d = Math.hypot(dx, dz);
-      const nx = d > 1e-6 ? dx / d : 0;
-      const nz = d > 1e-6 ? dz / d : 1;
-      pos[0] = l.pos[0] + nx * safeRadius;
-      pos[2] = l.pos[2] + nz * safeRadius;
-    } else {
-      // Overlapping safe zones: move along summed outward direction (or perpendicular if collinear)
-      let sumX = 0;
-      let sumZ = 0;
-      for (const l of violating) {
-        const dx = pos[0] - l.pos[0];
-        const dz = pos[2] - l.pos[2];
-        const d = Math.hypot(dx, dz);
-        if (d > 1e-6) {
-          sumX += dx / d;
-          sumZ += dz / d;
+      if (d <= 1e-6 || d >= 2 * safeRadius) continue;
+
+      const midX = (a[0] + b[0]) * 0.5;
+      const midZ = (a[2] + b[2]) * 0.5;
+      const h = Math.sqrt(Math.max(0, safeRadius * safeRadius - (d * 0.5) * (d * 0.5)));
+      const px = (-dz / d) * h;
+      const pz = (dx / d) * h;
+      for (const sign of [1, -1]) {
+        const ix = midX + sign * px;
+        const iz = midZ + sign * pz;
+        if (isOutsideAll(ix, iz, litLanterns, safeRadius)) {
+          candidates.push([ix, iz]);
         }
       }
-      let mag = Math.hypot(sumX, sumZ);
-      if (mag <= 1e-6) {
-        const l0 = violating[0];
-        const l1 = violating[1];
-        const lx = l1.pos[0] - l0.pos[0];
-        const lz = l1.pos[2] - l0.pos[2];
-        const lMag = Math.hypot(lx, lz);
-        if (lMag > 1e-6) {
-          sumX = -lz / lMag;
-          sumZ = lx / lMag;
-        } else {
-          sumX = 0;
-          sumZ = 1;
-        }
-        mag = 1;
-      }
-      pos[0] += (sumX / mag) * 0.6;
-      pos[2] += (sumZ / mag) * 0.6;
     }
+  }
+
+  if (candidates.length > 0) {
+    let best = candidates[0];
+    let bestDist = Math.hypot(best[0] - pos[0], best[1] - pos[2]);
+    for (let i = 1; i < candidates.length; i += 1) {
+      const d = Math.hypot(candidates[i][0] - pos[0], candidates[i][1] - pos[2]);
+      if (d < bestDist) {
+        best = candidates[i];
+        bestDist = d;
+      }
+    }
+    pos[0] = best[0];
+    pos[2] = best[1];
   }
 }
 
